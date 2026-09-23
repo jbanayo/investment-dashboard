@@ -28,6 +28,13 @@ python3 -m pip install -r requirements.txt
 python3 app.py
 ```
 
+Open [http://127.0.0.1:5000](http://127.0.0.1:5000). For a clean manual test,
+point the app at a temporary database instead of your normal local data:
+
+```sh
+PORTFOLIO_DATABASE=/private/tmp/portfolio-test.db python3 app.py
+```
+
 ## Test
 
 ```sh

@@ -22,6 +22,7 @@ def create_app(test_config: dict | None = None) -> "Flask":
     app.config.from_mapping(
         DATABASE=os.environ.get("PORTFOLIO_DATABASE", str(default_database)),
         BASE_CURRENCY=os.environ.get("PORTFOLIO_BASE_CURRENCY", "PHP").upper(),
+        SECRET_KEY=os.environ.get("PORTFOLIO_SECRET_KEY", "local-development-only"),
     )
 
     if test_config:
