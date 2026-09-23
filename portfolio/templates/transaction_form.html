@@ -2,7 +2,7 @@
 {% block content %}
 <div class="head"><div><h1>Record {{ transaction_type }}</h1><p class="sub">A matching cash leg is generated when you save.</p></div><a class="btn" href="{{ url_for('transactions') }}">Back to transactions</a></div>
 <form class="card form-grid" method="post">
-  <label class="field full">Instrument<select required class="input" name="instrument_id" id="instrument">{% for instrument in instruments %}<option value="{{ instrument.id }}" data-currency="{{ instrument.native_currency }}" {% if request.form.instrument_id == instrument.id|string %}selected{% endif %}>{{ instrument.name }} · {{ instrument.platform }} · {{ instrument.native_currency }}</option>{% endfor %}</select></label>
+  <label class="field full">Instrument<select required class="input" name="instrument_id" id="instrument">{% for instrument in instruments %}<option value="{{ instrument.id }}" data-currency="{{ instrument.native_currency }}" {% if (request.form.instrument_id if request.form else transaction.instrument_id) == instrument.id|string or (not request.form and transaction and transaction.instrument_id == instrument.id) %}selected{% endif %}>{{ instrument.name }} · {{ instrument.platform }} · {{ instrument.native_currency }}</option>{% endfor %}</select></label>
   {% if transaction_type == 'dividend' %}
   <label class="field">Payment date<input required class="input" type="date" name="payment_date" value="{{ request.form.payment_date or '' }}"></label>
   <label class="field">Gross amount<input required class="input" type="number" step="any" min="0" name="gross_amount" id="gross-amount" value="{{ request.form.gross_amount or '' }}"></label>
@@ -10,14 +10,14 @@
   <label class="field">Currency<input required class="input" maxlength="3" name="currency" id="currency" value="{{ request.form.currency or '' }}"></label>
   <div class="full sub" id="net-preview" aria-live="polite">Net cash: —</div>
   {% else %}
-  <label class="field">Trade date<input required class="input" type="date" name="trade_date" value="{{ request.form.trade_date or '' }}"></label>
-  <label class="field">Quantity<input required class="input" type="number" step="any" min="0" name="quantity" value="{{ request.form.quantity or '' }}"></label>
-  <label class="field">Unit price<input required class="input" type="number" step="any" min="0" name="unit_price" value="{{ request.form.unit_price or '' }}"></label>
-  <label class="field">Fees<input class="input" type="number" step="any" min="0" name="fees" value="{{ request.form.fees or '0' }}"></label>
-  <label class="field">Currency<input required class="input" maxlength="3" name="currency" id="currency" value="{{ request.form.currency or '' }}"></label>
+  <label class="field">Trade date<input required class="input" type="date" name="trade_date" value="{{ request.form.trade_date or (transaction.trade_date if transaction else '') }}"></label>
+  <label class="field">Quantity<input required class="input" type="number" step="any" min="0" name="quantity" value="{{ request.form.quantity or (transaction.quantity if transaction else '') }}"></label>
+  <label class="field">Unit price<input required class="input" type="number" step="any" min="0" name="unit_price" value="{{ request.form.unit_price or (transaction.unit_price if transaction else '') }}"></label>
+  <label class="field">Fees<input class="input" type="number" step="any" min="0" name="fees" value="{{ request.form.fees or (transaction.fees if transaction else '0') }}"></label>
+  <label class="field">Currency<input required class="input" maxlength="3" name="currency" id="currency" value="{{ request.form.currency or (transaction.currency if transaction else '') }}"></label>
   <label class="field">Zero-price reason <span class="sub">required only when price is zero</span><input class="input" name="zero_price_reason" value="{{ request.form.zero_price_reason or '' }}"></label>
   {% endif %}
-  <label class="field full">Note <span class="sub">optional</span><textarea class="input" name="note" rows="3">{{ request.form.note or '' }}</textarea></label>
+  <label class="field full">Note <span class="sub">optional</span><textarea class="input" name="note" rows="3">{{ request.form.note or (transaction.note if transaction and transaction.note else '') }}</textarea></label>
   <div class="actions full"><a class="btn" href="{{ url_for('transactions') }}">Cancel</a><button class="btn primary" type="submit">Record {{ transaction_type }}</button></div>
 </form>
 <script>const instrument=document.querySelector('#instrument'),currency=document.querySelector('#currency'); function setCurrency(){if(!currency.value) currency.value=instrument.selectedOptions[0].dataset.currency} instrument.addEventListener('change',()=>{currency.value=instrument.selectedOptions[0].dataset.currency});setCurrency();const gross=document.querySelector('#gross-amount'),tax=document.querySelector('#tax-withheld'),preview=document.querySelector('#net-preview');function net(){if(!gross)return;const value=(Number(gross.value||0)-Number(tax.value||0));preview.textContent=`Net cash: ${value.toFixed(2)}`}if(gross){gross.addEventListener('input',net);tax.addEventListener('input',net);net()}</script>

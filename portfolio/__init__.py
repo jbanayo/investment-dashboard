@@ -57,6 +57,9 @@ def create_app(test_config: dict | None = None) -> "Flask":
     from .ledger import record_fee, record_transfer
     from .prices import record_bulk_prices, record_manual_fx_rate, record_manual_price
     from .positions import portfolio_snapshot, position_transactions, positions_as_of
+    from .settings import get_setting, set_setting
+    from .corrections import delete_transaction, update_transaction
+    from .reconciliation import record_reconciliation
 
     @app.get("/")
     def index():
@@ -67,7 +70,36 @@ def create_app(test_config: dict | None = None) -> "Flask":
         base_currency = app.config.get("BASE_CURRENCY", "PHP")
         with database_connection() as connection:
             snapshot = portfolio_snapshot(connection, base_currency)
-        return render_template("dashboard.html", snapshot=snapshot)
+            grouping = get_setting(connection, "dashboard_grouping", "platform")
+        groups = {}
+        for item in snapshot["positions"]:
+            key = item["instrument"]["platform"] if grouping == "platform" else item["instrument"]["asset_class"]
+            groups.setdefault(key, []).append(item)
+        return render_template("dashboard.html", snapshot=snapshot, grouping=grouping, groups=groups)
+
+    @app.route("/reconciliation", methods=["GET", "POST"])
+    def reconciliation():
+        base_currency = app.config.get("BASE_CURRENCY", "PHP")
+        if request.method == "POST":
+            try:
+                with database_connection() as connection:
+                    record_reconciliation(connection, request.form.get("spreadsheet_total", ""), base_currency=base_currency, reconciliation_date=request.form.get("reconciliation_date") or None, note=request.form.get("note", ""))
+                flash("Reconciliation recorded.")
+                return redirect(url_for("reconciliation"))
+            except TransactionError as error:
+                flash(str(error), "error")
+        with database_connection() as connection:
+            records = connection.execute("SELECT * FROM reconciliation_records ORDER BY reconciliation_date DESC, id DESC").fetchall()
+        return render_template("reconciliation.html", records=records, base_currency=base_currency)
+
+    @app.post("/dashboard/grouping")
+    def set_dashboard_grouping():
+        grouping = request.form.get("grouping")
+        if grouping not in ("platform", "asset_class"):
+            return "Invalid grouping", 400
+        with database_connection() as connection:
+            set_setting(connection, "dashboard_grouping", grouping)
+        return redirect(url_for("dashboard"))
 
     @app.get("/positions")
     def positions():
@@ -214,6 +246,39 @@ def create_app(test_config: dict | None = None) -> "Flask":
             "transaction_form.html", transaction_type=transaction_type,
             instruments=instruments,
         )
+
+    @app.route("/transactions/<int:transaction_id>/edit", methods=["GET", "POST"])
+    def edit_transaction(transaction_id: int):
+        with database_connection() as connection:
+            transaction = connection.execute("SELECT * FROM transactions WHERE id = ?", (transaction_id,)).fetchone()
+            instruments = connection.execute("SELECT * FROM instruments WHERE asset_class != 'cash' ORDER BY platform, name").fetchall()
+        if transaction is None:
+            return "Transaction not found", 404
+        if transaction["parent_transaction_id"] is not None:
+            flash("Generated cash legs must be edited through their parent transaction.", "error")
+            return redirect(url_for("transactions"))
+        if transaction["type"] not in ("buy", "sell"):
+            flash("This transaction type cannot yet be edited from the ledger.", "error")
+            return redirect(url_for("transactions"))
+        if request.method == "POST":
+            try:
+                with database_connection() as connection:
+                    update_transaction(connection, transaction_id, request.form)
+                flash("Transaction updated and all derived figures recomputed.")
+                return redirect(url_for("transactions"))
+            except TransactionError as error:
+                flash(str(error), "error")
+        return render_template("transaction_form.html", transaction_type=transaction["type"], instruments=instruments, transaction=transaction)
+
+    @app.post("/transactions/<int:transaction_id>/delete")
+    def remove_transaction(transaction_id: int):
+        try:
+            with database_connection() as connection:
+                delete_transaction(connection, transaction_id)
+            flash("Transaction and its generated cash leg deleted. Derived figures recomputed.")
+        except TransactionError as error:
+            flash(str(error), "error")
+        return redirect(url_for("transactions"))
 
     @app.get("/prices")
     def prices():
