@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from .db import migrate
 from .db import connect
+from .cash import ensure_cash_instruments
 
 if TYPE_CHECKING:
     from flask import Flask
@@ -28,6 +29,8 @@ def create_app(test_config: dict | None = None) -> "Flask":
     database_path = Path(app.config["DATABASE"])
     database_path.parent.mkdir(parents=True, exist_ok=True)
     migrate(database_path)
+    with connect(database_path) as connection:
+        ensure_cash_instruments(connection)
 
     def database_connection():
         return connect(database_path)
