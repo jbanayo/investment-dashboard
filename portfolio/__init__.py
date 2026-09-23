@@ -21,6 +21,7 @@ def create_app(test_config: dict | None = None) -> "Flask":
     default_database = Path(app.instance_path) / "portfolio.db"
     app.config.from_mapping(
         DATABASE=os.environ.get("PORTFOLIO_DATABASE", str(default_database)),
+        BASE_CURRENCY=os.environ.get("PORTFOLIO_BASE_CURRENCY", "PHP").upper(),
     )
 
     if test_config:
@@ -55,10 +56,35 @@ def create_app(test_config: dict | None = None) -> "Flask":
     )
     from .ledger import record_fee, record_transfer
     from .prices import record_bulk_prices, record_manual_fx_rate, record_manual_price
+    from .positions import portfolio_snapshot, position_transactions, positions_as_of
 
     @app.get("/")
     def index():
-        return redirect(url_for("instruments"))
+        return redirect(url_for("dashboard"))
+
+    @app.get("/dashboard")
+    def dashboard():
+        base_currency = app.config.get("BASE_CURRENCY", "PHP")
+        with database_connection() as connection:
+            snapshot = portfolio_snapshot(connection, base_currency)
+        return render_template("dashboard.html", snapshot=snapshot)
+
+    @app.get("/positions")
+    def positions():
+        as_of = request.args.get("as_of") or None
+        with database_connection() as connection:
+            records = positions_as_of(connection, as_of, include_zero=True)
+        return render_template("positions.html", positions=records, as_of=as_of)
+
+    @app.get("/positions/<int:instrument_id>")
+    def position_detail(instrument_id: int):
+        as_of = request.args.get("as_of") or None
+        with database_connection() as connection:
+            instrument = connection.execute("SELECT * FROM instruments WHERE id = ?", (instrument_id,)).fetchone()
+            records = position_transactions(connection, instrument_id, as_of)
+        if instrument is None:
+            return "Instrument not found", 404
+        return render_template("position_detail.html", instrument=instrument, transactions=records, as_of=as_of)
 
     @app.get("/instruments")
     def instruments():

@@ -16,6 +16,9 @@ PORTFOLIO_DATABASE=/path/to/portfolio.db python3 app.py
 Migrations run when the Flask application starts. They are tracked in the
 database's `schema_migrations` table and may safely be run repeatedly.
 
+Dashboard totals default to PHP. Set `PORTFOLIO_BASE_CURRENCY` to use another
+base currency once its matching FX series has been entered.
+
 ## Run
 
 Install Flask, then run the app:

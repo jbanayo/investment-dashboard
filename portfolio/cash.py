@@ -60,13 +60,20 @@ def get_or_create_cash_instrument(
     ).lastrowid
 
 
-def cash_balance(connection: sqlite3.Connection, instrument_id: int) -> float:
+def cash_balance(
+    connection: sqlite3.Connection, instrument_id: int, as_of: str | None = None
+) -> float:
     """Return a balance derived from cash-ledger entries, never typed directly."""
     row = connection.execute(
         "SELECT asset_class FROM instruments WHERE id = ?", (instrument_id,)
     ).fetchone()
     if row is None or row["asset_class"] != "cash":
         raise ValueError("Cash balance can only be calculated for a cash instrument.")
+    if as_of:
+        return connection.execute(
+            "SELECT COALESCE(SUM(net_amount), 0) FROM transactions WHERE instrument_id = ? AND trade_date <= ?",
+            (instrument_id, as_of),
+        ).fetchone()[0]
     return connection.execute(
         "SELECT COALESCE(SUM(net_amount), 0) FROM transactions WHERE instrument_id = ?",
         (instrument_id,),
