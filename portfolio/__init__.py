@@ -45,6 +45,14 @@ def create_app(test_config: dict | None = None) -> "Flask":
         list_instruments,
         update_instrument,
     )
+    from .transactions import (
+        TransactionError,
+        dividend_income,
+        list_transactions,
+        record_buy,
+        record_dividend,
+        record_sell,
+    )
 
     @app.get("/")
     def index():
@@ -112,5 +120,43 @@ def create_app(test_config: dict | None = None) -> "Flask":
         except InstrumentError as error:
             flash(str(error), "error")
         return redirect(url_for("instruments"))
+
+    @app.get("/transactions")
+    def transactions():
+        with database_connection() as connection:
+            records = list_transactions(connection)
+            dividends = dividend_income(connection)
+        return render_template("transactions.html", transactions=records, dividends=dividends)
+
+    @app.route("/transactions/new/<transaction_type>", methods=["GET", "POST"])
+    def new_transaction(transaction_type: str):
+        if transaction_type not in ("buy", "sell", "dividend"):
+            return "Transaction type not found", 404
+        with database_connection() as connection:
+            instruments = connection.execute(
+                "SELECT * FROM instruments WHERE asset_class != 'cash' ORDER BY platform, name"
+            ).fetchall()
+        if request.method == "POST":
+            try:
+                with database_connection() as connection:
+                    if transaction_type == "buy":
+                        record_buy(connection, request.form)
+                    elif transaction_type == "dividend":
+                        record_dividend(connection, request.form)
+                    else:
+                        _, gain = record_sell(connection, request.form)
+                message = "Purchase recorded with its generated cash leg."
+                if transaction_type == "sell":
+                    message = f"Sale recorded with its generated cash leg. Realised gain/loss: {gain:.2f}."
+                elif transaction_type == "dividend":
+                    message = "Dividend recorded with its generated net-cash leg."
+                flash(message)
+                return redirect(url_for("transactions"))
+            except TransactionError as error:
+                flash(str(error), "error")
+        return render_template(
+            "transaction_form.html", transaction_type=transaction_type,
+            instruments=instruments,
+        )
 
     return app

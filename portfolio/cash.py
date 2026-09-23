@@ -38,6 +38,28 @@ def ensure_cash_instruments(connection: sqlite3.Connection) -> None:
             )
 
 
+def get_or_create_cash_instrument(
+    connection: sqlite3.Connection, platform: str, currency: str
+) -> int:
+    existing = connection.execute(
+        """
+        SELECT id FROM instruments
+        WHERE asset_class = 'cash' AND platform = ? AND native_currency = ?
+        """,
+        (platform, currency),
+    ).fetchone()
+    if existing:
+        return existing["id"]
+    return connection.execute(
+        """
+        INSERT INTO instruments
+            (name, ticker, asset_class, platform, native_currency, notes)
+        VALUES (?, ?, 'cash', ?, ?, 'Created automatically for ledger cash legs.')
+        """,
+        (f"{platform} {currency} cash", currency, platform, currency),
+    ).lastrowid
+
+
 def cash_balance(connection: sqlite3.Connection, instrument_id: int) -> float:
     """Return a balance derived from cash-ledger entries, never typed directly."""
     row = connection.execute(

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="head"><div><h1>Instruments</h1><p class="sub">Assets available for ledger transactions.</p></div><a class="btn primary" href="{{ url_for('new_instrument') }}">Add instrument</a></div>
+<div class="head"><div><h1>Instruments</h1><p class="sub">Assets available for ledger transactions.</p></div><div class="actions"><a class="btn" href="{{ url_for('transactions') }}">Transactions</a><a class="btn primary" href="{{ url_for('new_instrument') }}">Add instrument</a></div></div>
 <form class="card filters" method="get">
   <label class="field">Platform<select class="input" name="platform"><option value="">All platforms</option>{% for platform in platforms %}<option value="{{ platform }}" {% if platform == selected_platform %}selected{% endif %}>{{ platform }}</option>{% endfor %}</select></label>
   <label class="field">Asset class<select class="input" name="asset_class"><option value="">All asset classes</option>{% for asset_class in asset_classes %}<option value="{{ asset_class }}" {% if asset_class == selected_asset_class %}selected{% endif %}>{{ asset_class|replace('_', ' ')|title }}</option>{% endfor %}</select></label>
