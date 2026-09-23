@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="head"><div><h1>{{ 'Edit instrument' if instrument else 'Add instrument' }}</h1><p class="sub">Transactions attach to an instrument.</p></div><a class="btn" href="{{ url_for('instruments') }}">Back to instruments</a></div>
+<form class="card form-grid" method="post">
+  <label class="field full">Name<input class="input" required name="name" value="{{ request.form.name if request.form else (instrument.name if instrument else '') }}"></label>
+  <label class="field">Ticker <span class="sub">optional</span><input class="input" name="ticker" value="{{ request.form.ticker if request.form else (instrument.ticker if instrument and instrument.ticker else '') }}"></label>
+  <label class="field">Asset class<select class="input" required name="asset_class">{% for asset_class in asset_classes %}<option value="{{ asset_class }}" {% if (request.form.asset_class if request.form else (instrument.asset_class if instrument else '')) == asset_class %}selected{% endif %}>{{ asset_class|replace('_', ' ')|title }}</option>{% endfor %}</select></label>
+  <label class="field">Platform<input class="input" list="known-platforms" required name="platform" value="{{ request.form.platform if request.form else (instrument.platform if instrument else '') }}"><datalist id="known-platforms">{% for platform in known_platforms %}<option value="{{ platform }}">{% endfor %}</datalist></label>
+  <label class="field">Native currency<input class="input" required maxlength="3" name="native_currency" value="{{ request.form.native_currency if request.form else (instrument.native_currency if instrument else '') }}" placeholder="PHP"></label>
+  <label class="field">Sector <span class="sub">optional</span><input class="input" name="sector" value="{{ request.form.sector if request.form else (instrument.sector if instrument and instrument.sector else '') }}"></label>
+  <label class="field full">Notes <span class="sub">optional</span><textarea class="input" name="notes" rows="4">{{ request.form.notes if request.form else (instrument.notes if instrument and instrument.notes else '') }}</textarea></label>
+  <div class="actions full"><a class="btn" href="{{ url_for('instruments') }}">Cancel</a><button class="btn primary" type="submit">{{ 'Save changes' if instrument else 'Add instrument' }}</button></div>
+</form>
+{% endblock %}
