@@ -53,6 +53,8 @@ def create_app(test_config: dict | None = None) -> "Flask":
         record_dividend,
         record_sell,
     )
+    from .ledger import record_fee, record_transfer
+    from .prices import record_bulk_prices, record_manual_fx_rate, record_manual_price
 
     @app.get("/")
     def index():
@@ -128,6 +130,34 @@ def create_app(test_config: dict | None = None) -> "Flask":
             dividends = dividend_income(connection)
         return render_template("transactions.html", transactions=records, dividends=dividends)
 
+    @app.route("/transactions/new/fee", methods=["GET", "POST"])
+    def new_fee():
+        with database_connection() as connection:
+            instruments = connection.execute(
+                "SELECT * FROM instruments WHERE asset_class != 'cash' ORDER BY platform, name"
+            ).fetchall()
+        if request.method == "POST":
+            try:
+                with database_connection() as connection:
+                    record_fee(connection, request.form)
+                flash("Fee recorded as a cash debit.")
+                return redirect(url_for("transactions"))
+            except TransactionError as error:
+                flash(str(error), "error")
+        return render_template("fee_form.html", instruments=instruments, known_platforms=KNOWN_PLATFORMS)
+
+    @app.route("/transactions/new/transfer", methods=["GET", "POST"])
+    def new_transfer():
+        if request.method == "POST":
+            try:
+                with database_connection() as connection:
+                    transaction_ids = record_transfer(connection, request.form)
+                flash(f"Recorded {len(transaction_ids)} transfer ledger entr{'y' if len(transaction_ids) == 1 else 'ies'}.")
+                return redirect(url_for("transactions"))
+            except TransactionError as error:
+                flash(str(error), "error")
+        return render_template("transfer_form.html", known_platforms=KNOWN_PLATFORMS)
+
     @app.route("/transactions/new/<transaction_type>", methods=["GET", "POST"])
     def new_transaction(transaction_type: str):
         if transaction_type not in ("buy", "sell", "dividend"):
@@ -158,5 +188,70 @@ def create_app(test_config: dict | None = None) -> "Flask":
             "transaction_form.html", transaction_type=transaction_type,
             instruments=instruments,
         )
+
+    @app.get("/prices")
+    def prices():
+        with database_connection() as connection:
+            instruments = connection.execute(
+                "SELECT * FROM instruments WHERE asset_class != 'cash' ORDER BY platform, name"
+            ).fetchall()
+            latest_prices = connection.execute(
+                """
+                SELECT p.* FROM prices p JOIN (
+                    SELECT instrument_id, MAX(price_date) AS price_date
+                    FROM prices GROUP BY instrument_id
+                ) latest ON latest.instrument_id = p.instrument_id AND latest.price_date = p.price_date
+                WHERE p.source = 'manual'
+                """
+            ).fetchall()
+            fx_rates = connection.execute(
+                "SELECT * FROM fx_rates WHERE base_currency = 'USD' AND quote_currency = 'PHP' ORDER BY rate_date DESC"
+            ).fetchall()
+        price_by_instrument = {price["instrument_id"]: price for price in latest_prices}
+        return render_template("prices.html", instruments=instruments, price_by_instrument=price_by_instrument, fx_rates=fx_rates)
+
+    @app.route("/prices/new", methods=["GET", "POST"])
+    def new_price():
+        with database_connection() as connection:
+            instruments = connection.execute(
+                "SELECT * FROM instruments WHERE asset_class != 'cash' ORDER BY platform, name"
+            ).fetchall()
+        if request.method == "POST":
+            try:
+                with database_connection() as connection:
+                    record_manual_price(connection, request.form)
+                flash("Manual price saved.")
+                return redirect(url_for("prices"))
+            except TransactionError as error:
+                flash(str(error), "error")
+        return render_template("price_form.html", instruments=instruments)
+
+    @app.route("/prices/bulk", methods=["GET", "POST"])
+    def bulk_prices():
+        with database_connection() as connection:
+            instruments = connection.execute(
+                "SELECT * FROM instruments WHERE asset_class != 'cash' ORDER BY platform, name"
+            ).fetchall()
+        if request.method == "POST":
+            try:
+                with database_connection() as connection:
+                    written = record_bulk_prices(connection, request.form.get("price_date", ""), request.form)
+                flash(f"Saved {written} manual price{'s' if written != 1 else ''}.")
+                return redirect(url_for("prices"))
+            except TransactionError as error:
+                flash(str(error), "error")
+        return render_template("bulk_prices.html", instruments=instruments)
+
+    @app.route("/fx-rates/new", methods=["GET", "POST"])
+    def new_fx_rate():
+        if request.method == "POST":
+            try:
+                with database_connection() as connection:
+                    record_manual_fx_rate(connection, request.form)
+                flash("USD/PHP rate saved.")
+                return redirect(url_for("prices"))
+            except TransactionError as error:
+                flash(str(error), "error")
+        return render_template("fx_rate_form.html")
 
     return app
