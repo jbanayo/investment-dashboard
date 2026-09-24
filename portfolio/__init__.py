@@ -41,6 +41,7 @@ def create_app(test_config: dict | None = None) -> "Flask":
     from .instruments import (
         ASSET_CLASSES,
         KNOWN_PLATFORMS,
+        PRICE_SOURCES,
         InstrumentError,
         create_instrument,
         delete_instrument,
@@ -148,7 +149,7 @@ def create_app(test_config: dict | None = None) -> "Flask":
                 flash(str(error), "error")
         return render_template(
             "instrument_form.html", instrument=None, asset_classes=ASSET_CLASSES,
-            known_platforms=KNOWN_PLATFORMS,
+            known_platforms=KNOWN_PLATFORMS, price_sources=PRICE_SOURCES,
         )
 
     @app.route("/instruments/<int:instrument_id>/edit", methods=["GET", "POST"])
@@ -169,7 +170,7 @@ def create_app(test_config: dict | None = None) -> "Flask":
                 flash(str(error), "error")
         return render_template(
             "instrument_form.html", instrument=instrument, asset_classes=ASSET_CLASSES,
-            known_platforms=KNOWN_PLATFORMS,
+            known_platforms=KNOWN_PLATFORMS, price_sources=PRICE_SOURCES,
         )
 
     @app.post("/instruments/<int:instrument_id>/delete")

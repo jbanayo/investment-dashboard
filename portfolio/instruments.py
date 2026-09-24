@@ -8,6 +8,7 @@ ASSET_CLASSES = (
     "ph_equity", "us_equity", "crypto", "etf", "fund", "cash", "other",
 )
 KNOWN_PLATFORMS = ("BDO Securities", "IBKR", "Kraken")
+PRICE_SOURCES = ("manual", "kraken", "yahoo_finance")
 
 
 class InstrumentError(ValueError):
@@ -37,6 +38,8 @@ def _clean(values: dict[str, str]) -> dict[str, str | None]:
         "native_currency": currency,
         "sector": values.get("sector", "").strip() or None,
         "notes": values.get("notes", "").strip() or None,
+        "price_source": values.get("price_source", "manual").strip() or "manual",
+        "source_symbol": values.get("source_symbol", "").strip().upper() or None,
     }
 
 
@@ -62,8 +65,8 @@ def create_instrument(connection: sqlite3.Connection, values: dict[str, str]) ->
     cursor = connection.execute(
         """
         INSERT INTO instruments
-            (name, ticker, asset_class, platform, native_currency, sector, notes)
-        VALUES (:name, :ticker, :asset_class, :platform, :native_currency, :sector, :notes)
+            (name, ticker, asset_class, platform, native_currency, sector, notes, price_source, source_symbol)
+        VALUES (:name, :ticker, :asset_class, :platform, :native_currency, :sector, :notes, :price_source, :source_symbol)
         """,
         data,
     )
@@ -93,7 +96,7 @@ def update_instrument(
         """
         UPDATE instruments SET name = :name, ticker = :ticker, asset_class = :asset_class,
             platform = :platform, native_currency = :native_currency, sector = :sector,
-            notes = :notes
+            notes = :notes, price_source = :price_source, source_symbol = :source_symbol
         WHERE id = :id
         """,
         data,
