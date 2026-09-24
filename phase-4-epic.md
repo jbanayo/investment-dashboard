@@ -31,19 +31,16 @@ BDO Securities statement OCR (P2). Any broker API or login. Scheduled imports.
 - Cash balances on IBKR and Kraken after import match the brokers' statements for that month.
 - Every row that didn't import is listed with a reason.
 
-## Open decision (blocks S5)
+## Decisions (made 2026-09-24)
 
-**Kraken staking and rewards** (PRD §9 verify note, §16 second open question). There are two options:
+**Kraken staking and rewards are income at their value on receipt** (PRD §9). A reward adds the received quantity to the position, with a cost basis equal to its market value on the receipt date. It counts as income alongside dividends, and generates no cash leg. The rejected alternative, a quantity increase at zero cost, would push every reward into unrealised gain and distort average cost.
 
-- Treat rewards as income at their value on receipt. This is the same shape as a dividend, and the reward quantity arrives with a cost basis equal to its value.
-- Treat rewards as a quantity increase with zero cost basis.
-
-The two give different cost bases and different total-return curves. Recommendation: treat them as income at value on receipt. It matches how dividends already flow, keeps average cost meaningful, and makes staking yield visible in the dividend KPI. Settle this as S1 before building the Kraken parser.
+**Import has its own page** (PRD §10.5). It is not a tab in the Add dialog. The dialog's 620px width can't hold a multi-row preview with rejected rows and update diffs.
 
 ## Sequencing
 
 ```
-S1 (decision) ─────────────────────────┐
+S1 (reward type) ──────────────────────┐
 S2 ──► S3 ──► S4 ──► S5 ──┐            ▼
        └──► S7 ────────────┼──► S8 ──► S6 ──► S9 ──► S10 ──► S11
                            │
@@ -56,16 +53,19 @@ S2 is the framework every parser writes through. S8 (cash reconciliation) must p
 
 ## User stories
 
-### S1 — Decide the Kraken reward model
+### S1 — Reward transaction type
 
-**As J, I want** staking and reward income modelled one way, on purpose, **so that** the Kraken parser isn't built on a guess that changes my cost basis.
+**As J, I want** staking rewards recorded as income at their value on receipt, **so that** they count as income and my average cost stays meaningful.
 
 **Acceptance criteria**
-- [ ] The Kraken holdings that earn rewards are listed, with the ledger row types Kraken uses for them.
-- [ ] One model is chosen and written into PRD §9 and §16.
-- [ ] If the income model is chosen, the transaction type used for rewards is decided. Options are extending `dividend`, or adding a `reward` type through a migration.
+- [ ] A migration adds `reward` to the transaction type constraint. SQLite can't alter a CHECK constraint, so this means a table rebuild, tested against a copy of a populated database.
+- [ ] A reward stores quantity, unit value on the receipt date (from the stored price series), and the resulting cost basis. It generates no cash leg.
+- [ ] Average cost after a reward is (previous cost + reward value) / (previous quantity + reward quantity). Verified by a hand-computed test.
+- [ ] Rewards are queryable as income per instrument and per period, and are available to the Phase 3 income KPI.
+- [ ] A reward can also be entered manually, from the Transaction tab of the Add dialog.
+- [ ] The Kraken ledger row types that represent rewards are listed and documented.
 
-**Size:** 1
+**Size:** 3
 
 ---
 
@@ -74,7 +74,7 @@ S2 is the framework every parser writes through. S8 (cash reconciliation) must p
 **As J, I want** every import to show me what it will write before it writes it, **so that** a bad file never reaches the ledger.
 
 **Acceptance criteria**
-- [ ] An Import screen with a file picker and a platform selector. The format is auto-detected where possible.
+- [ ] A dedicated Import page (see S10), with a file picker and a platform selector. The format is auto-detected where possible.
 - [ ] Parsing runs locally in the Flask process. The file never leaves the machine (PRD §12).
 - [ ] Parsed rows go to a staging area, not to `transactions`.
 - [ ] The preview shows rows read, rows to create, rows to update, rows unchanged, and rows rejected, following the style guide's preview pattern.
@@ -126,7 +126,7 @@ S2 is the framework every parser writes through. S8 (cash reconciliation) must p
 - [ ] Trade fees are attached to the trade, not imported as separate fees.
 - [ ] Deposits and withdrawals of USD become external transfers.
 - [ ] Crypto deposits and withdrawals to an outside wallet are handled one of two ways, decided per case: as a transfer at market value, or rejected for manual handling. Never silently.
-- [ ] Staking and reward rows follow the model chosen in S1.
+- [ ] Staking and reward rows become `reward` transactions (S1), valued at the stored close for their receipt date. A reward whose date has no stored price is rejected with that reason, not valued at zero.
 - [ ] Stablecoins are either cash-equivalent instruments or ordinary crypto holdings. The choice is decided once and applied consistently.
 - [ ] `external_id` uses Kraken's ledger id.
 
@@ -193,16 +193,18 @@ S2 is the framework every parser writes through. S8 (cash reconciliation) must p
 
 ---
 
-### S10 — Import entry point in the dashboard
+### S10 — Import page and entry point
 
-**As J, I want** to reach import from the dashboard, **so that** it's part of the routine and not a separate tool.
+**As J, I want** import on its own page, reachable from the dashboard, **so that** it's part of the routine and the preview has room to show every row.
 
 **Acceptance criteria**
-- [ ] An "Import" option in the Add dialog's tab row, or an "Import file" button next to "Record transaction". This needs a design decision.
+- [ ] A full-width Import page, built from the style guide's card, table, badge, and preview components.
+- [ ] An "Import file" `.btn` on the holdings card, next to "Record transaction", opens the page. The header keeps "Refresh all prices" as its only primary button.
+- [ ] The page's layout: upload card, then summary counts, then a staged-rows table grouped by outcome (create, update, unchanged, rejected). Commit is the page's single primary button, labelled with the count ("Commit 42 rows").
 - [ ] After commit, the toast states figures: "Imported 42 IBKR rows · 3 rejected · cash matches statement".
 - [ ] Imported rows appear in Recent transactions with their import source label.
 
-**Size:** 2
+**Size:** 3
 
 ---
 
@@ -223,7 +225,7 @@ S2 is the framework every parser writes through. S8 (cash reconciliation) must p
 
 ---
 
-## Total: 11 stories, 35 points
+## Total: 11 stories, 38 points
 
 ## Prototype alignment
 
@@ -234,7 +236,8 @@ S2 is the framework every parser writes through. S8 (cash reconciliation) must p
 - The rejected-row list, with inline "create instrument" and "map to existing" actions.
 - The update diff for broker corrections.
 - The import history list and rollback.
-- Where import lives in navigation: a fourth tab in the Add dialog, or a separate page. The Add dialog's 620px width is tight for a multi-row preview, so a separate page is probably better.
+- Navigation is decided: a separate page, opened from the holdings card (S10). Its layout still needs a mock before S2 starts.
+- Staking rewards need a type chip (`reward`) in Recent transactions, and a Reward option in the Add dialog's transaction types (S1).
 
 The style guide's preview and validation patterns (principle 4, §5 Forms) cover the interaction model. The screens themselves don't exist yet.
 

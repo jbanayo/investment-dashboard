@@ -2,8 +2,9 @@
 
 **Parent:** [investment-tracker-prd.md](investment-tracker-prd.md) §17, Phase 1
 **Owner:** J
-**Status:** Not started
+**Status:** Built. S13, the live reconciliation, is open.
 **Created:** 2026-09-23
+**Last updated:** 2026-09-24
 
 ---
 
@@ -21,7 +22,7 @@ PRD requirements 10.1 in full, the manual-entry portions of 10.2, and 10.3 excep
 
 ## Out of scope
 
-Live price and FX fetching (Phase 2), the value chart and total-return line (Phase 3), CSV import (Phase 4), ratings (Phase 5), OCR (Phase 6). Position notes (10.8) are P1 and not in this phase.
+Live price and FX fetching (Phase 2), the value chart and total-return line (Phase 3), CSV import (Phase 4), ratings (Phase 5), OCR (Phase 6). Position notes (10.8) are P1 and not in this phase. PRD v5 assigns them to Phase 5.
 
 ## Definition of done
 
@@ -38,6 +39,36 @@ S1 ──► S2 ──► S3 ──► S4 ──┬──► S5 ──► S6 ─
 ```
 
 Stories S1–S4 are the foundation and are strictly ordered. S5 onward can overlap once transactions exist.
+
+---
+
+## Delivery status (2026-09-24)
+
+S1–S12 are built and committed, and the 22 unit tests pass. S13 has its tooling (the Reconcile screen and [docs/reconciliation.md](docs/reconciliation.md)) but has not been run. It needs real positions, prices, FX, and a broker dividend statement, and no local database with real data exists yet. The phase's definition of done depends on S13, so Phase 1 is built but not signed off.
+
+| Story | Status | Commit |
+|---|---|---|
+| S1 Schema and migrations | Built | `0b0e6c3`, later migrations 002–005 |
+| S2 Instruments | Built | `0b0e6c3` |
+| S3 Cash instruments | Built | `05d6dd7` |
+| S4 Buys | Built | `f901e1d` |
+| S5 Sells | Built | `f901e1d` |
+| S6 Dividends | Built | `f901e1d` |
+| S7 Fees and transfers | Built | `a926ffb` |
+| S8 Manual prices, bulk entry, FX | Built | `a926ffb` |
+| S9 Computed positions | Built | `a7eea04` |
+| S10 Dashboard totals | Built | `a7eea04` |
+| S11 Grouping and subtotals | Built | `e947f7a` |
+| S12 Edit and delete with recompute | Built | `e947f7a` |
+| S13 Spreadsheet reconciliation | **Open.** Tooling built in `e947f7a`, not yet run on real data. | — |
+
+Acceptance-criteria checkboxes below are left as written. They get ticked during the S13 run, which is the phase's verification.
+
+**Gaps found while planning Phases 2–6, carried forward instead of reopened here:**
+- The stale check skips weekends only, with one rule for every market. It is wrong for crypto and for market holidays. → [Phase 2 S10](phase-2-epic.md)
+- The latest-price query orders by `fetched_at` only. Once fetches run, a fetch would override a manual correction. → [Phase 2 S7](phase-2-epic.md)
+- The Flask dashboard is a simplified version of the mockup. It has no KPI row or allocation card, uses `PHP 1,234.00` formatting, and hard-codes the stale fill. → [Phase 2 S11](phase-2-epic.md)
+- Manually typed IBKR and Kraken history has no `external_id`, so the first real import would duplicate it. → [Phase 4 S11](phase-4-epic.md)
 
 ---
 

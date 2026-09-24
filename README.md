@@ -1,7 +1,23 @@
 # Local Portfolio Dashboard
 
-This is a local Flask portfolio dashboard. The current implementation contains
-the database foundation for Epic 1, Story S1.
+This is a local Flask portfolio dashboard. Phase 1 (the ledger and a dashboard
+on manual prices) is built. Its live reconciliation against real broker data is
+still open; see [docs/reconciliation.md](docs/reconciliation.md).
+
+## Documents
+
+- [investment-tracker-prd.md](investment-tracker-prd.md) is the product
+  requirements (v5).
+- [dashboard.html](dashboard.html) is the design mockup, and
+  [style-guide.md](style-guide.md) is extracted from it. Where they disagree,
+  the mockup wins.
+- The phase epics, with user stories:
+  [1](phase-1-epic.md) ledger and dashboard ·
+  [2](phase-2-epic.md) fetch layer ·
+  [3](phase-3-epic.md) value chart and total return ·
+  [4](phase-4-epic.md) structured import ·
+  [5](phase-5-epic.md) ratings and notes ·
+  [6](phase-6-epic.md) research document OCR
 
 ## Database location
 

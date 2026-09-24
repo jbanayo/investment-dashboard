@@ -2,7 +2,7 @@
 
 **Source of truth:** `dashboard.html` (the mockup). Where the two disagree, the mockup wins, and this file should be updated to match.
 **Applies to:** the Flask app's templates and CSS, per PRD v4 §6.
-**Last updated:** 2026-09-23
+**Last updated:** 2026-09-24
 
 ---
 
@@ -230,3 +230,20 @@ Inverted colours (`--ink` background, `--page` text), 8px radius, fixed bottom-c
 - Inputs are tied to their labels with `for`/`id`. Price-table inputs, which have no visible label, get `aria-label`.
 - Contrast: body text on `--surface` is `--ink`, and secondary text is `--ink-2`. Keep `--muted` for text 12px and up, not for anything a decision depends on on its own.
 - Layout is checked at 390px, with no horizontal page scroll.
+
+---
+
+## 9. Screens planned beyond the mockup
+
+The phase epics add screens the mockup doesn't show. Build them from the components above, and mock each one before its story starts. Once a screen is mocked, add it to `dashboard.html` or a sibling mockup, so the mockup stays the source of truth.
+
+| Screen | Epic | Notes |
+|---|---|---|
+| Import page | [Phase 4](phase-4-epic.md) S2, S10 | Its own page, not a dialog tab. Upload card, summary counts, then a staged-rows table grouped as create / update / unchanged / rejected. One primary button: "Commit N rows". Opened from an "Import file" `.btn` on the holdings card. |
+| Import history | [Phase 4](phase-4-epic.md) S9 | A table of past imports with counts, file link, and rollback. |
+| `reward` transaction | [Phase 4](phase-4-epic.md) S1 | A `.tx-type` chip like the others. There is no cash leg row, because rewards move no cash. |
+| Rating refresh | [Phase 5](phase-5-epic.md) S7 | Uses the small confirmation dialog and the privacy line, as price refresh does. |
+| Manual rating form, rating history | [Phase 5](phase-5-epic.md) S5, S8 | The form follows §5 Forms, with an implied-upside preview. |
+| Document confirmation | [Phase 6](phase-6-epic.md) S4 | Two panes: the document beside the draft fields. Low-confidence fields use `.warn`, and the preview states what the save writes. |
+
+**Return KPI wording** (PRD v5 §9). The percentage is time-weighted. The delta line shows the peso gain "net of ±₱X transfers". Don't label the percentage as a simple gain over the start value.

@@ -31,11 +31,14 @@ Benchmark comparison and performance attribution (P2 non-goals). Tax-lot returns
 - A taxed dividend appears once in total return, and the dividend KPI labels it as already included in value.
 - Editing a mid-history transaction changes the curve from that date forward, and only from that date.
 
-## Open decision (blocks S3)
+## Decision: return method (decided 2026-09-24)
 
-**Return method.** PRD §9 defines total return as "change in portfolio value over a period, adjusted for transfers in and out." The mockup computes a **time-weighted return**: daily returns chained together, with each day's flow removed. It also shows an absolute gain of end value minus start value minus net transfers. These two figures answer different questions, and they diverge whenever a large deposit lands before a rise or fall.
+Total return is shown as two figures, as the mockup does, and recorded in PRD §9:
 
-Recommendation: keep both, as the mockup does. Use time-weighted return for the percentage, because it is what "how did the portfolio do" means and a deposit can't distort it. Use absolute gain net of transfers for the peso figure, because it is what "how much did I make" means. Label each so neither is mistaken for the other. Record the decision in the PRD.
+- **Percentage: time-weighted.** Each day's return has that day's external flows removed, and daily returns are chained over the range. This answers "how did the portfolio do". A deposit can't move it.
+- **Peso gain: net of transfers.** End value, minus start value, minus net external transfers in the range. This answers "how much did I make".
+
+Each is labelled so neither is mistaken for the other.
 
 ## Sequencing
 
@@ -88,13 +91,14 @@ S10 closes the phase
 **As J, I want** return figures that exclude money I moved in or out, **so that** a ₱500,000 deposit doesn't read as a ₱500,000 gain.
 
 **Acceptance criteria**
-- [ ] The return method is settled per the open decision above and recorded in the PRD.
+- [ ] The percentage is time-weighted and the peso gain is net of transfers, per the decision above and PRD §9.
 - [ ] Only external transfers (`is_external_transfer = 1`) count as flows. Generated cash legs, dividends, fees, and internal platform-to-platform transfer pairs (sharing a `transfer_group_id`) do not.
 - [ ] USD transfers are converted at the FX rate on the transfer date.
 - [ ] Dividends are not added to return. They are already in value through their cash leg.
 - [ ] Fees reduce return, since they reduce value and are not a flow.
 - [ ] Return across a gap is computed from the last valid value before the gap to the first valid value after it. The gap is never treated as a 0% day.
-- [ ] Unit tests cover: a deposit on a flat day (return 0%), a withdrawal, a taxed dividend (counted once), an internal transfer (no effect), and a range that starts inside a gap.
+- [ ] Staking rewards (Phase 4) are not flows. They add value like any other holding change.
+- [ ] Unit tests cover: a deposit on a flat day (return 0%), a withdrawal, a taxed dividend (counted once), an internal transfer (no effect), a range that starts inside a gap, and a large deposit before a fall (the time-weighted percentage and the peso gain diverge in the expected direction).
 
 **Size:** 5
 
@@ -113,7 +117,7 @@ S10 closes the phase
 - [ ] The chart redraws on resize, and is 240px tall under 560px.
 - [ ] The series is computed server-side. The browser only draws it.
 
-**Notes:** PRD §6 names Chart.js. The style guide and the mockup use hand-drawn inline SVG, and the style guide says the mockup wins. Recommendation: follow the mockup. The gap bands, transfer triangles, and tooltip note rows are custom work in either library, and the mockup's renderer is already about 150 lines. Update PRD §6 to match.
+**Notes:** Inline SVG, not Chart.js, per PRD §6 v5. The mockup's renderer is the starting point.
 
 **Size:** 5
 
@@ -184,6 +188,7 @@ S10 closes the phase
 **Acceptance criteria**
 - [ ] The Total return KPI shows the percentage from S3, then the absolute gain with "net of {±transfers} transfers", then a foot reading "Adjusted for transfers in and out".
 - [ ] The Dividend income KPI shows net dividends in base currency for the range, the payment count, and total withheld tax. Its foot reads "Already included in value. Not added on top."
+- [ ] Once Phase 4 records staking rewards, they are included in this KPI at their value on receipt, and the sub-line shows them separately (PRD §9).
 - [ ] Dividends are converted at the FX rate on their payment date.
 - [ ] The Unrealised gain/loss KPI shows gain over cost, excluding cash, with the percentage on cost.
 - [ ] KPI figures reconcile exactly with the chart's first and last points for the same range.
@@ -216,8 +221,8 @@ S10 closes the phase
 **Covered by the mockup and followed here:** the Value/Total return toggle; the 1M/YTD/1Y/All selector; transfer triangles with leaders; gap band and broken line; tooltip with transfer and gap notes; table alternative; the three KPIs, with feet that state what is included; a dividend KPI tied to the chart range.
 
 **Differences from the mockup:**
-- **Chart library.** PRD §6 says Chart.js. The mockup and style guide use inline SVG. This epic follows the mockup and asks for the PRD to be updated.
-- **Return method.** The mockup's time-weighted percentage is not what PRD §9's wording describes. This is flagged above as a decision to make, not silently adopted.
+- **Chart library.** Resolved: inline SVG, as in the mockup. PRD §6 now says so.
+- **Return method.** Resolved: the mockup's time-weighted percentage plus peso gain net of transfers. PRD §9 now says so.
 - **Gap trigger.** The mockup hard-codes a gap week. S2 defines the rule that produces one.
 - **FX.** The mockup converts all history at one rate. S1 converts each date at its own rate.
 
@@ -225,6 +230,5 @@ S10 closes the phase
 
 ## Risks carried into this phase
 
-- **Return method ambiguity.** Choosing the method after the UI is built means relabelling every figure. Decide before S3.
 - **Internal transfers counted as flows.** A move from IBKR to Kraken would show as a withdrawal and a deposit, with zero net effect on value but two markers and noise in the return. S3 and S7 exclude these pairs.
 - **Performance.** Recomputing positions per day over two years is the slowest query in the app. S1 sets a budget, and caching is allowed only with ledger versioning.

@@ -1,10 +1,12 @@
 # Product Requirements Document: Local Portfolio Dashboard
 
-**Status:** Draft v4
+**Status:** Draft v5
 **Owner:** J
-**Last updated:** 2026-09-23
+**Last updated:** 2026-09-24
 
-*Changes from v3: the three open questions are answered. Platforms are known (Kraken, BDO Securities, IBKR), dividends are in scope as part of return, and the stack is decided (Flask). Each answer has been carried through the sections it affects rather than left in section 14.*
+*Changes from v4: four decisions made while writing the Phase 2–6 epics, each carried through the sections it affects. Total return is time-weighted for the percentage, with the peso gain shown net of transfers (§9). Kraken staking rewards are income at their value on receipt (§9). The value chart is inline SVG, matching the mockup, not Chart.js (§6). Position notes and manual rating entry are now assigned to Phase 5, and structured import gets its own page (§10.5, §17). Phase 1 is built, and its live reconciliation is still open.*
+
+*Changes from v3: the three open questions were answered. Platforms are known (Kraken, BDO Securities, IBKR), dividends are in scope as part of return, and the stack is decided (Flask).*
 
 ---
 
@@ -65,7 +67,9 @@ Nothing here was inherited, so v3 carried proposals. v4 decides.
 
 **Storage: SQLite.** The one choice that is expensive to reverse. A single file, no server, trivially backed up, and adequate for one user's transaction and price history for decades.
 
-**Backend and UI: Python, Flask, server-rendered templates, Chart.js for the value graph.** Suits a dashboard with CRUD forms and file upload, and keeps the whole thing one process serving `localhost`.
+**Backend and UI: Python, Flask, and server-rendered templates.** This suits a dashboard with CRUD forms and file upload, and keeps the whole thing one process serving `localhost`.
+
+**Value chart: server-computed series, drawn as inline SVG.** v4 named Chart.js. The mockup ([dashboard.html](dashboard.html)) and [style-guide.md](style-guide.md) draw the chart as hand-written SVG instead, and the style guide makes the mockup the source of truth. The chart's distinctive parts (gap bands, transfer triangles, tooltip note rows) are custom work in any library. The mockup's renderer is about 150 lines, with no dependency.
 
 **Streamlit was the alternative and is now rejected.** It reaches a working dashboard with charts and file upload in a fraction of the code. The cost is that transaction entry and editing forms are awkward in it, and this app is half forms — and the dividend handling in section 7 adds a confirm-before-write step to almost every input path, which is exactly the interaction Streamlit's rerun model handles worst. This is a tool meant to be used daily for years, so the form ergonomics matter more than the first week of build speed.
 
@@ -117,11 +121,20 @@ Dividends are in scope as part of return. That answer is cheap to give and easy 
 3. Portfolio value is the market value of everything held, cash instruments included. Dividends therefore appear in the value line the day they land, by the ordinary path, with no special case.
 4. Money moving in or out of the household — a deposit to IBKR, a withdrawal from Kraken — is a `transfer`, and transfers are the only thing that changes invested capital.
 
-**Total return** is then the change in portfolio value over a period, adjusted for transfers in and out. Cumulative dividend income stays available as its own figure, read off the dividend transactions, and is displayed as income — never added to value, because it is already in there.
+**Total return** is the change in portfolio value over a period, adjusted for transfers in and out. It is shown as two figures, because "how did the portfolio do" and "how much did I make" are different questions, and they diverge whenever a large deposit lands before a rise or a fall:
+
+- **Return percentage: time-weighted.** Each day's return is computed with that day's external flows removed, and the daily returns are chained over the period. A deposit, whatever its size or timing, cannot move this figure.
+- **Gain in base currency: net of transfers.** End value, minus start value, minus net external transfers in the period.
+
+Only external transfers count as flows. Generated cash legs, dividends, rewards, fees, and internal platform-to-platform transfer pairs do not. Fees reduce return, because they reduce value without being a flow. Across a gap in price data, return is taken from the last valid value before the gap to the first valid value after it. A gap is never a 0% day.
+
+Cumulative dividend income stays available as its own figure, read off the dividend transactions, and is displayed as income — never added to value, because it is already in there.
 
 **Withholding tax is not optional to model.** J is PH-resident holding US equities through IBKR, so US dividends arrive with tax already deducted, and PH dividends arrive net as well. If the ledger records gross, the cash balance drifts from the broker's by the tax every single payment. Gross, tax, and net are three stored fields; the cash leg uses net.
 
-`[VERIFY: confirm how Kraken staking or reward income should be modelled — as dividend-type income at the value on receipt, or as a quantity increase with zero cost basis. The two produce different cost bases and different total-return curves, and the answer depends on what J actually holds.]`
+**Staking and reward income is income at its value on receipt.** A Kraken reward is recorded as a `reward` transaction. The received quantity is added to the position, with a cost basis equal to its market value on the receipt date. The reward counts as income, alongside dividends, and is shown separately in the income figure. It generates no cash leg, because no cash moves.
+
+The rejected alternative was a quantity increase with zero cost basis. That would push every reward into unrealised gain, understate income, and distort average cost. The chosen model matches how dividends already flow and keeps average cost meaningful.
 
 ## 10. Requirements
 
@@ -149,11 +162,11 @@ Dividends are in scope as part of return. That answer is cheap to give and easy 
 - [ ] Grouping togglable by platform and by asset class, each group showing its own subtotal and share of the whole.
 - [ ] Per-holding refresh button and a refresh-all that states how many lookups it will perform before running.
 - [ ] Stale prices visually distinct from current ones.
-- [ ] Cumulative dividend income displayed for the selected period, labelled as income already included in value.
+- [ ] Cumulative dividend income displayed for the selected period, labelled as income already included in value. Staking rewards (section 9) are included and shown separately.
 
 **10.4 Value chart**
 - [ ] Portfolio value over time in base currency, computed from transactions joined to the price series.
-- [ ] Total-return view: value change adjusted for transfers in and out, so a deposit does not read as a gain.
+- [ ] Total-return view: value change adjusted for transfers in and out, so a deposit does not read as a gain. The percentage is time-weighted, and the peso gain is net of transfers, per section 9.
 - [ ] Transfers in and out marked on the chart, since an unexplained step in the line is indistinguishable from a data error.
 - [ ] Range selector covering month, year to date, year, and all time.
 - [ ] Dates with no price data shown as a break in the line rather than interpolated, so a gap reads as missing data instead of a flat portfolio.
@@ -166,12 +179,15 @@ Dividends are in scope as part of return. That answer is cheap to give and easy 
 - [ ] Rows are keyed on the broker's own transaction id, so re-importing an overlapping range updates instead of duplicating.
 - [ ] Anything the parser cannot map to a known instrument or transaction type is surfaced as a rejected row, never silently dropped.
 - [ ] Import produces a summary — rows read, rows applied, rows rejected — before it commits.
+- [ ] Import has its own page, not a tab in the Add dialog, because a multi-row preview does not fit the dialog's width.
+- [ ] Trades and dividends move cash exactly once. The ledger's generated cash leg is the cash movement, and the broker's own cash rows for the same events are matched to it, not imported again.
 
 **10.6 Ratings and target prices**
 - [ ] Per instrument: analyst rating or consensus, target price with its currency, source name, and the date the rating was issued.
 - [ ] Implied upside against the current price, computed locally.
 - [ ] Instruments with no coverage display "no coverage" explicitly. Crypto has no analyst consensus in this sense and should say so rather than show an empty cell.
 - [ ] Ratings are never overwritten; a new rating appends, so the previous one and its date remain visible.
+- [ ] Manual rating entry, for ratings read from a note before document extraction exists, and for anything no live source covers.
 
 **10.7 Research document upload**
 - [ ] Upload a PDF or image of a broker research note, extract issuer, subject instrument, rating, target price, and date.
@@ -189,7 +205,7 @@ BDO statement OCR for bulk position import, a structured decision log linking no
 
 **instruments** — id, name, ticker, asset_class, platform, native_currency, sector, notes
 
-**transactions** — id, instrument_id fk, type, trade_date, quantity, unit_price, fees, currency, gross_amount, tax_withheld, net_amount, parent_transaction_id fk nullable, external_id nullable, source_type (manual / import / document), note, entered_at
+**transactions** — id, instrument_id fk, type (buy / sell / dividend / fee / transfer, plus reward from Phase 4), trade_date, quantity, unit_price, fees, currency, gross_amount, tax_withheld, net_amount, parent_transaction_id fk nullable, external_id nullable, source_type (manual / import / document), note, entered_at. Phase 1 added platform, realised_gain_loss, related_instrument_id, is_external_transfer, and transfer_group_id.
 
 **prices** — id, instrument_id fk, price_date, price, currency, source, fetched_at
 
@@ -200,6 +216,10 @@ BDO statement OCR for bulk position import, a structured decision log linking no
 **documents** — id, filename, stored_path, uploaded_at, doc_type, extraction_status, raw_text
 
 **notes** — id, instrument_id fk, note_date, body, created_at
+
+**Supporting tables added in Phase 1:** price_revisions and fx_rate_revisions (the history of changed prices and rates), app_settings (persisted view choices), and reconciliation_records.
+
+**Planned additions:** instrument source and source symbol (Phase 2), and instrument coverage status (Phase 5). Each lands through a migration in its phase.
 
 Three fields carry the v4 decisions. `tax_withheld` and `net_amount` let a dividend balance against the cash the broker actually credited. `parent_transaction_id` links a generated cash leg to the dividend or trade that produced it, so the pair is edited and deleted as a unit. `external_id` is the broker's own identifier, unique per platform, and it is what makes re-importing an overlapping CSV range idempotent.
 
@@ -246,17 +266,23 @@ Two operations that look like network operations are not. Structured file import
 - **Which platforms and instruments.** BDO Securities (PH equities, PHP), IBKR (US equities and ETFs, USD), Kraken (crypto, USD). Carried into section 5, and it is what makes the fetch layer and the import path designable.
 - **Dividends are part of return.** Modelled per section 9: gross, tax, net, with a generated cash leg, and total return adjusted for transfers. The chart is total return, not price-only.
 - **Flask over Streamlit.** Section 6. The schema still lands first, so the decision stays reversible.
+- **Total return is time-weighted, with gain shown net of transfers** (2026-09-24). Section 9.
+- **Kraken rewards are income at value on receipt** (2026-09-24). Section 9. This unblocks the Kraken import.
+- **Import gets its own page** (2026-09-24). Section 10.5.
+- **Value chart is inline SVG, not Chart.js** (2026-09-24). Section 6. It follows the mockup.
 
 ## 16. Open Questions
 
 - Does IBKR hold anything outside US listings — LSE, HK, or other markets? A single non-USD, non-PHP holding reopens the FX surface closed in section 5. Non-blocking; answer before section 10.2.
-- How should Kraken staking and reward income be modelled? See the verify note in section 9. Blocking for Kraken import, not for anything else.
 - Are there holdings on none of these three platforms — a fund, an insurance-linked product, cash outside the brokers? These have no fetchable price by definition and would land entirely on the manual path. Non-blocking, but it changes how much manual price entry has to be optimised.
 
 ## 17. Phases
 
+Each phase has an epic with user stories: [Phase 1](phase-1-epic.md), [Phase 2](phase-2-epic.md), [Phase 3](phase-3-epic.md), [Phase 4](phase-4-epic.md), [Phase 5](phase-5-epic.md), [Phase 6](phase-6-epic.md).
+
 **Phase 1 — Ledger and dashboard on manual prices.** Instruments, transactions including dividends with their cash legs, manual price entry, positions view, totals, grouping.
 *Done when:* the dashboard total matches a hand-checked spreadsheet, a partial sell computes correctly, and a taxed dividend leaves a cash balance matching the broker.
+*Status (2026-09-24):* built. The live reconciliation against real broker data is still open.
 
 **Phase 2 — Fetch layer.** On-click price and FX lookups with historical backfill, staleness indicators. Kraken and US equities first, PSE coverage resolved or fallen back to manual.
 *Done when:* a fetch on a new instrument populates enough history to chart the prior year, and a deliberately broken response leaves existing data untouched.
@@ -264,10 +290,10 @@ Two operations that look like network operations are not. Structured file import
 **Phase 3 — Value chart and total return.** Computed portfolio value over time, total-return view, transfer markers, range selector, gap handling.
 *Done when:* a correct curve renders for a period predating first use, and a deposit moves the value line without moving the return line.
 
-**Phase 4 — Structured import.** IBKR Flex Query CSV and Kraken ledger CSV parsers, rejected-row reporting, idempotent re-import.
+**Phase 4 — Structured import.** A dedicated import page, IBKR Flex Query CSV and Kraken ledger CSV parsers (including staking rewards per section 9), rejected-row reporting, idempotent re-import, and cash matched once against the broker.
 *Done when:* a month of real broker activity imports with no manual typing, and importing it a second time changes nothing.
 
-**Phase 5 — Ratings.** Live rating lookup where covered, explicit no-coverage states, implied upside.
+**Phase 5 — Ratings and notes.** Live rating lookup where covered, manual rating entry, explicit no-coverage states, implied upside, and position notes (10.8). v4 left position notes out of every phase, although the mockup shows them on the main dashboard.
 *Done when:* every holding shows either a dated rating with a named source or a no-coverage label.
 
 **Phase 6 — Research document OCR.** Upload, extract, confirm, link to source file.

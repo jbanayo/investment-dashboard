@@ -18,7 +18,7 @@ The dashboard is correct after Phase 4. This phase adds context without touching
 
 ## In scope
 
-PRD 10.6 in full. PRD 10.8 position notes, which is P1 but not assigned to any phase in PRD §17 (see Prototype alignment). Manual rating entry, using the `source_type = 'manual'` value the schema already allows.
+PRD 10.6 in full, including manual rating entry, which uses the `source_type = 'manual'` value the schema already allows. PRD 10.8 position notes, assigned to this phase in PRD v5 §17.
 
 ## Out of scope
 
@@ -198,9 +198,9 @@ S9 (independent, any time)
 - The mockup infers coverage from asset class (every ETF is "index ETF", with no override). S2 stores it per instrument, so an ETF with analyst coverage can show it.
 - The mockup computes upside without checking currency. S6 guards against a target currency that differs from the price currency.
 
-**Gaps in the PRD that the mockup exposes:**
-- **Position notes (10.8) have no phase.** PRD §17 lists six phases and none includes 10.8, yet the mockup puts notes on the main dashboard. This epic takes them as S9. Add them to PRD §17 Phase 5.
-- **No manual rating path is specified.** Without S5, PH holdings can't meet the Phase 5 definition of done until Phase 6.
+**PRD gaps the mockup exposed, now resolved in PRD v5:**
+- **Position notes (10.8)** had no phase, although the mockup puts notes on the main dashboard. They are now in PRD §17 Phase 5, as S9 here.
+- **Manual rating entry** wasn't specified. Without it, PH holdings couldn't meet this phase's definition of done until Phase 6. It is now a 10.6 requirement, as S5 here.
 
 **Not in the mockup and needs design:**
 - The trigger for a rating refresh (S7).
