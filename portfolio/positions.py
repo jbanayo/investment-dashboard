@@ -147,3 +147,54 @@ def portfolio_snapshot(
         item["allocation"] = item["market_value_base"] / total if total else Decimal("0")
     previous_total = total - daily_change
     return {"as_of": as_of, "base_currency": base_currency, "positions": valued, "excluded": excluded, "total": total, "daily_change": daily_change, "daily_change_percent": daily_change / previous_total if previous_total else None}
+
+
+def daily_valuations(
+    connection: sqlite3.Connection, start_date: str, end_date: str,
+    base_currency: str = "PHP",
+) -> list[dict]:
+    """Calculate a non-cached end-of-day portfolio value series.
+
+    Each point is derived from `positions_as_of`, then valued with the most
+    recent recorded close and FX rate on or before that date. Missing inputs
+    produce a gap rather than a made-up zero. Phase 3 S2 will refine the
+    permitted carry-forward window for market holidays.
+    """
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+    if end < start:
+        raise ValueError("End date must not precede start date.")
+    values = []
+    current = start
+    while current <= end:
+        point_date = current.isoformat()
+        snapshot = portfolio_snapshot(connection, base_currency, point_date)
+        flow = _external_flow_on_date(connection, point_date, base_currency)
+        values.append({
+            "date": point_date,
+            "value_base": snapshot["total"] if not snapshot["excluded"] else None,
+            "net_external_flow_base": flow,
+            "status": "ok" if not snapshot["excluded"] else "gap",
+            "excluded": snapshot["excluded"],
+        })
+        current += timedelta(days=1)
+    return values
+
+
+def _external_flow_on_date(
+    connection: sqlite3.Connection, flow_date: str, base_currency: str
+) -> Decimal | None:
+    rows = connection.execute(
+        """
+        SELECT net_amount, currency FROM transactions
+        WHERE type = 'transfer' AND is_external_transfer = 1 AND trade_date = ?
+        """,
+        (flow_date,),
+    ).fetchall()
+    total = Decimal("0")
+    for row in rows:
+        fx, _ = _fx_rate(connection, row["currency"], base_currency.upper(), flow_date)
+        if fx is None:
+            return None
+        total += _decimal(row["net_amount"]) * fx
+    return total
