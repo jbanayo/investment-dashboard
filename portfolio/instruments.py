@@ -9,6 +9,7 @@ ASSET_CLASSES = (
 )
 KNOWN_PLATFORMS = ("BDO Securities", "IBKR", "Kraken")
 PRICE_SOURCES = ("manual", "kraken", "yahoo_finance")
+COVERAGE_STATUSES = ("covered", "no_coverage", "not_applicable_crypto", "not_applicable_index_etf", "cash")
 
 
 class InstrumentError(ValueError):
@@ -30,6 +31,10 @@ def _clean(values: dict[str, str]) -> dict[str, str | None]:
     if len(currency) != 3 or not currency.isalpha():
         raise InstrumentError("Enter a three-letter native currency code.")
 
+    default_coverage = {"crypto": "not_applicable_crypto", "etf": "not_applicable_index_etf", "cash": "cash"}.get(asset_class, "no_coverage")
+    coverage_status = values.get("coverage_status", "").strip() or default_coverage
+    if coverage_status not in COVERAGE_STATUSES:
+        raise InstrumentError("Choose a supported rating coverage status.")
     return {
         "name": name,
         "ticker": values.get("ticker", "").strip().upper() or None,
@@ -40,6 +45,7 @@ def _clean(values: dict[str, str]) -> dict[str, str | None]:
         "notes": values.get("notes", "").strip() or None,
         "price_source": values.get("price_source", "manual").strip() or "manual",
         "source_symbol": values.get("source_symbol", "").strip().upper() or None,
+        "coverage_status": coverage_status,
     }
 
 
@@ -65,8 +71,8 @@ def create_instrument(connection: sqlite3.Connection, values: dict[str, str]) ->
     cursor = connection.execute(
         """
         INSERT INTO instruments
-            (name, ticker, asset_class, platform, native_currency, sector, notes, price_source, source_symbol)
-        VALUES (:name, :ticker, :asset_class, :platform, :native_currency, :sector, :notes, :price_source, :source_symbol)
+            (name, ticker, asset_class, platform, native_currency, sector, notes, price_source, source_symbol, coverage_status)
+        VALUES (:name, :ticker, :asset_class, :platform, :native_currency, :sector, :notes, :price_source, :source_symbol, :coverage_status)
         """,
         data,
     )
@@ -96,7 +102,8 @@ def update_instrument(
         """
         UPDATE instruments SET name = :name, ticker = :ticker, asset_class = :asset_class,
             platform = :platform, native_currency = :native_currency, sector = :sector,
-            notes = :notes, price_source = :price_source, source_symbol = :source_symbol
+            notes = :notes, price_source = :price_source, source_symbol = :source_symbol,
+            coverage_status = :coverage_status
         WHERE id = :id
         """,
         data,

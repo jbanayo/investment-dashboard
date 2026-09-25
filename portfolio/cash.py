@@ -31,8 +31,8 @@ def ensure_cash_instruments(connection: sqlite3.Connection) -> None:
             connection.execute(
                 """
                 INSERT INTO instruments
-                    (name, ticker, asset_class, platform, native_currency, sector, notes)
-                VALUES (?, ?, 'cash', ?, ?, NULL, 'Created automatically for ledger cash legs.')
+                    (name, ticker, asset_class, platform, native_currency, sector, notes, coverage_status)
+                VALUES (?, ?, 'cash', ?, ?, NULL, 'Created automatically for ledger cash legs.', 'cash')
                 """,
                 (f"{platform} {currency} cash", currency, platform, currency),
             )
@@ -53,8 +53,8 @@ def get_or_create_cash_instrument(
     return connection.execute(
         """
         INSERT INTO instruments
-            (name, ticker, asset_class, platform, native_currency, notes)
-        VALUES (?, ?, 'cash', ?, ?, 'Created automatically for ledger cash legs.')
+            (name, ticker, asset_class, platform, native_currency, notes, coverage_status)
+        VALUES (?, ?, 'cash', ?, ?, 'Created automatically for ledger cash legs.', 'cash')
         """,
         (f"{platform} {currency} cash", currency, platform, currency),
     ).lastrowid

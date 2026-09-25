@@ -32,7 +32,7 @@ class MigrationTests(unittest.TestCase):
                 }.issubset(tables)
             )
             self.assertEqual(
-                7,
+                8,
                 connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0],
             )
 
