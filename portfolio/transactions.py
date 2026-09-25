@@ -264,6 +264,9 @@ def list_transactions(connection: sqlite3.Connection):
         FROM transactions t
         JOIN instruments i ON i.id = t.instrument_id
         LEFT JOIN transactions parent ON parent.id = t.parent_transaction_id
-        ORDER BY t.trade_date DESC, t.id DESC
+        -- Keep each generated leg directly under its parent.
+        ORDER BY COALESCE(parent.trade_date, t.trade_date) DESC,
+                 COALESCE(t.parent_transaction_id, t.id) DESC,
+                 t.parent_transaction_id IS NOT NULL, t.id
         """
     ).fetchall()

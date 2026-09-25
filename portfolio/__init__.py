@@ -66,6 +66,19 @@ def create_app(test_config: dict | None = None) -> "Flask":
     from .settings import get_setting, set_setting
     from .corrections import delete_transaction, update_transaction
     from .reconciliation import record_reconciliation
+    from .dashboard import (
+        RANGE_NAMES,
+        dividend_income_base,
+        fx_summary,
+        holdings_groups,
+        last_price_refresh,
+        recent_notes,
+        recent_transactions,
+        unrealised_totals,
+    )
+    from .formatting import FILTERS
+
+    app.jinja_env.filters.update(FILTERS)
 
     @app.get("/")
     def index():
@@ -87,11 +100,21 @@ def create_app(test_config: dict | None = None) -> "Flask":
             chart_points = daily_valuations(connection, start.isoformat(), today.isoformat(), base_currency)
         returns = transfer_adjusted_returns(chart_points)
         chart = chart_geometry(chart_points, "return" if chart_mode == "return" else "value")
-        groups = {}
-        for item in snapshot["positions"]:
-            key = item["instrument"]["platform"] if grouping == "platform" else item["instrument"]["asset_class"]
-            groups.setdefault(key, []).append(item)
-        return render_template("dashboard.html", snapshot=snapshot, grouping=grouping, groups=groups, chart=chart, chart_points=chart_points, chart_mode=chart_mode, chart_range=chart_range, returns=returns)
+        with database_connection() as connection:
+            groups = holdings_groups(connection, snapshot, grouping)
+            dividends = dividend_income_base(connection, start.isoformat(), today.isoformat(), base_currency)
+            fx = fx_summary(connection, snapshot)
+            last_refresh = last_price_refresh(connection)
+            recent = recent_transactions(connection)
+            notes = recent_notes(connection)
+        stale_count = sum(1 for item in snapshot["positions"] if item["stale"])
+        return render_template(
+            "dashboard.html", snapshot=snapshot, grouping=grouping, groups=groups, chart=chart,
+            chart_points=chart_points, chart_mode=chart_mode, chart_range=chart_range,
+            range_name=RANGE_NAMES[chart_range], chart_start=start.isoformat(), returns=returns,
+            unrealised=unrealised_totals(snapshot), dividends=dividends, fx=fx,
+            last_refresh=last_refresh, recent=recent, notes=notes, stale_count=stale_count,
+        )
 
     @app.route("/reconciliation", methods=["GET", "POST"])
     def reconciliation():
@@ -276,7 +299,7 @@ def create_app(test_config: dict | None = None) -> "Flask":
                 flash(str(error), "error")
         return render_template(
             "transaction_form.html", transaction_type=transaction_type,
-            instruments=instruments,
+            instruments=instruments, transaction=None,
         )
 
     @app.route("/transactions/<int:transaction_id>/edit", methods=["GET", "POST"])

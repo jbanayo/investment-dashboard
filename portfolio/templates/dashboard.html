@@ -1,8 +1,255 @@
-{% extends "base.html" %}{% block content %}
-<div class="head"><div><h1>Portfolio dashboard</h1><p class="sub">Valued in {{ snapshot.base_currency }} as of {{ snapshot.as_of }}.</p></div><div class="actions"><a class="btn primary" href="{{ url_for('new_instrument') }}">Add instrument</a><a class="btn" href="{{ url_for('instruments') }}">Instruments</a><a class="btn" href="{{ url_for('positions') }}">Computed positions</a><a class="btn" href="{{ url_for('prices') }}">Manual prices</a><a class="btn" href="{{ url_for('transactions') }}">Transactions</a><a class="btn" href="{{ url_for('reconciliation') }}">Reconcile</a></div></div>
-<form method="post" action="{{ url_for('set_dashboard_grouping') }}" class="actions" style="margin-bottom:12px"><span class="sub">Group holdings by</span><button class="btn {% if grouping == 'platform' %}primary{% endif %}" name="grouping" value="platform">Platform</button><button class="btn {% if grouping == 'asset_class' %}primary{% endif %}" name="grouping" value="asset_class">Asset class</button></form>
-<div class="card" style="margin-bottom:12px"><div class="sub">Total portfolio value</div><div style="font-size:32px;font-weight:650">{{ snapshot.base_currency }} {{ '{:,.2f}'.format(snapshot.total) }}</div><div class="{% if snapshot.daily_change < 0 %}error{% endif %}">{% if snapshot.daily_change >= 0 %}+{% endif %}{{ snapshot.base_currency }} {{ '{:,.2f}'.format(snapshot.daily_change) }}{% if snapshot.daily_change_percent is not none %} · {% if snapshot.daily_change_percent >= 0 %}+{% endif %}{{ '{:.2%}'.format(snapshot.daily_change_percent) }}{% else %} · Change unavailable until two price dates are entered{% endif %}</div></div>
-<div class="card" style="margin-bottom:12px"><div class="head"><div><h2>{{ 'Total return' if chart_mode == 'return' else 'Portfolio value' }}</h2><p class="sub">{{ chart_range }} · computed from transactions × stored price series</p></div><form method="post" action="{{ url_for('set_chart_settings') }}" class="actions"><button class="btn {% if chart_mode == 'value' %}primary{% endif %}" name="mode" value="value">Value</button><button class="btn {% if chart_mode == 'return' %}primary{% endif %}" name="mode" value="return">Total return</button><input type="hidden" name="range" value="{{ chart_range }}"></form></div><form method="post" action="{{ url_for('set_chart_settings') }}" class="actions" style="margin-bottom:8px"><input type="hidden" name="mode" value="{{ chart_mode }}">{% for r in ['1M','YTD','1Y','All'] %}<button class="btn {% if chart_range == r %}primary{% endif %}" name="range" value="{{ r }}">{{ r }}</button>{% endfor %}</form><svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="{{ 'Total return' if chart_mode == 'return' else 'Portfolio value' }} chart for {{ chart_range }}" style="width:100%;height:auto;min-height:240px;background:var(--surface-2)">{% if chart.baseline is not none %}<line x1="40" y1="{{ chart.baseline }}" x2="{{ chart.width - 16 }}" y2="{{ chart.baseline }}" stroke="var(--axis)"/>{% endif %}{% for segment in chart.segments %}<polyline points="{{ segment }}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>{% endfor %}{% for marker in chart.markers %}<path d="M {{ marker.x - 5 }},{{ chart.height - 18 }} L {{ marker.x + 5 }},{{ chart.height - 18 }} L {{ marker.x }},{{ chart.height - (26 if marker.direction == 'in' else 10) }} Z" fill="none" stroke="var(--axis)"><title>{{ marker.direction }} transfer · {{ marker.amount }}</title></path>{% endfor %}{% for gap in chart.gaps %}<text x="{{ 40 + (chart.width - 56) * gap / ([chart_points|length - 1, 1]|max) }}" y="28" fill="var(--muted)" font-size="11">no data</text>{% endfor %}</svg><p class="sub">Value line · △ external transfer · gaps are missing, not flat.</p><details><summary>View chart data as a table</summary><div class="table-wrap"><table><thead><tr><th>Date</th><th>Value</th><th>External flow</th><th>Return</th></tr></thead><tbody>{% for point in chart_points %}<tr><td>{{ point.date }}</td><td>{{ snapshot.base_currency }} {{ '{:,.2f}'.format(point.value_base) if point.value_base is not none else 'no data' }}</td><td>{{ point.net_external_flow_base or 0 }}</td><td>{{ '{:.2%}'.format(point.cumulative_return) if point.cumulative_return is not none else 'no data' }}</td></tr>{% endfor %}</tbody></table></div></details></div>
-<div class="card table-wrap"><table><thead><tr><th>Holding</th><th>Quantity</th><th>Average cost</th><th>Last price</th><th>Market value</th><th>Unrealised gain/loss</th><th>Allocation</th></tr></thead><tbody>{% for group, items in groups.items() %}<tr><td colspan="7" style="background:var(--surface-2);font-weight:600">{{ group|replace('_', ' ')|title }} · {{ items|length }} holding{{ 's' if items|length != 1 else '' }} · {{ snapshot.base_currency }} {{ '{:,.2f}'.format(items|sum(attribute='market_value_base')) }} · {{ '{:.1%}'.format(items|sum(attribute='allocation')) }}</td></tr>{% for item in items %}<tr {% if item.stale %}style="background:#fff8e8"{% endif %}><td><strong>{{ item.instrument.name }}</strong><br><span class="sub">{{ item.instrument.platform }} · {{ item.instrument.asset_class|replace('_', ' ')|title }}</span></td><td>{{ item.quantity }}</td><td>{{ item.instrument.native_currency }} {{ '{:,.2f}'.format(item.average_cost) }}</td><td>{{ item.price.currency }} {{ '{:,.2f}'.format(item.price.price) }}<br><span class="sub">{{ item.price.price_date }} · {{ item.price.source }}{% if item.stale %} · ⚠ stale{% endif %}</span></td><td>{{ item.price.currency }} {{ '{:,.2f}'.format(item.market_value_native) }}<br><strong>{{ snapshot.base_currency }} {{ '{:,.2f}'.format(item.market_value_base) }}</strong>{% if item.fx_row %}<br><span class="sub">FX {{ item.fx_row.rate }} · {{ item.fx_row.rate_date }}</span>{% endif %}</td><td class="{% if item.unrealised_gain_loss < 0 %}error{% endif %}">{% if item.unrealised_gain_loss >= 0 %}+{% endif %}{{ snapshot.base_currency }} {{ '{:,.2f}'.format(item.unrealised_gain_loss) }}</td><td>{{ '{:.1%}'.format(item.allocation) }}</td></tr>{% endfor %}{% else %}<tr><td colspan="7">No valued holdings yet. Add transactions and manual prices.</td></tr>{% endfor %}</tbody></table></div>
-{% if snapshot.excluded %}<div class="card" style="margin-top:12px"><strong>Excluded from total</strong><p class="sub">These holdings are not valued at zero.</p><ul>{% for item in snapshot.excluded %}<li>{{ item.instrument.name }} · {{ item.reason }}</li>{% endfor %}</ul></div>{% endif %}
+{% extends "base.html" %}
+{% block body_class %}dash{% endblock %}
+{% block content %}
+{% set base = snapshot.base_currency %}
+
+<header class="top">
+  <div>
+    <h1>Portfolio</h1>
+    <div class="meta">
+      <span>Base currency <b>{{ base }}</b></span>
+      {% if fx %}<span>FX <b class="num">{{ fx.pair }} {{ '%.2f'|format(fx.rate) }} · {{ fx.date|short_date }}</b></span>{% endif %}
+      <span>Prices last entered <b class="num">{{ last_refresh|timestamp }}</b></span>
+    </div>
+  </div>
+  <div class="actions">
+    <a class="btn" href="{{ url_for('new_instrument') }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Add asset</a>
+    <a class="btn primary" href="{{ url_for('bulk_prices') }}">Enter prices</a>
+  </div>
+</header>
+
+{# ---------- KPIs ---------- #}
+<section class="kpis">
+  <div class="card kpi hero">
+    <div class="label">Total portfolio value</div>
+    <div class="value num">{{ snapshot.total|money(base) }}</div>
+    <div class="delta num">
+      {% if snapshot.daily_change_percent is not none %}
+      <span class="{{ snapshot.daily_change|direction }}">{{ snapshot.daily_change|arrow }}{{ snapshot.daily_change|signed(base) }} ({{ snapshot.daily_change_percent|pct }})</span> <span class="muted">since previous close</span>
+      {% else %}<span class="muted">Change needs two price dates</span>{% endif %}
+    </div>
+    <div class="foot">{% if fx %}{{ fx.pair.split('/')[0] }} converted at {{ '%.2f'|format(fx.rate) }} ({{ fx.date|short_date }}){% else %}As of {{ snapshot.as_of|long_date }}{% endif %}</div>
+  </div>
+  <div class="card kpi">
+    <div class="label">Total return · {{ range_name }}</div>
+    {% if returns.return_percent is not none %}
+    <div class="value num"><span class="{{ returns.return_percent|direction }}">{{ returns.return_percent|pct }}</span></div>
+    <div class="delta num"><span class="{{ returns.gain_base|direction }}">{{ returns.gain_base|signed(base) }}</span> <span class="muted">net of {{ returns.net_flows|signed(base) }} transfers</span></div>
+    {% else %}
+    <div class="value num muted">—</div>
+    <div class="delta muted">No valued days in this range</div>
+    {% endif %}
+    <div class="foot">Time-weighted, adjusted for transfers in and out</div>
+  </div>
+  <div class="card kpi">
+    <div class="label">Dividend income · {{ range_name }}</div>
+    <div class="value num">{{ dividends.net|money(base) }}</div>
+    <div class="delta ink2 num">{{ dividends.count }} payment{{ '' if dividends.count == 1 else 's' }} · {{ dividends.tax|money(base) }} withheld{% if dividends.unconverted %} · <span class="badge stale">⚠ {{ dividends.unconverted }} without FX</span>{% endif %}</div>
+    <div class="foot">Already included in value. Not added on top.</div>
+  </div>
+  <div class="card kpi">
+    <div class="label">Unrealised gain / loss</div>
+    <div class="value num"><span class="{{ unrealised.gain|direction }}">{{ unrealised.gain|signed(base) }}</span></div>
+    <div class="delta num">{% if unrealised.percent is not none %}<span class="{{ unrealised.percent|direction }}">{{ unrealised.percent|arrow }}{{ unrealised.percent|pct }} on cost</span>{% endif %}</div>
+    <div class="foot">Excludes cash balances</div>
+  </div>
+</section>
+
+{# ---------- Chart + allocation ---------- #}
+<section class="grid2">
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h2>{{ 'Total return' if chart_mode == 'return' else 'Portfolio value' }}</h2>
+        <div class="sub">{{ chart_start|long_date }} to {{ snapshot.as_of|long_date }} · computed from transactions × stored price series</div>
+      </div>
+      <div class="controls">
+        <form method="post" action="{{ url_for('set_chart_settings') }}" class="seg" aria-label="Chart mode">
+          <input type="hidden" name="range" value="{{ chart_range }}">
+          <button name="mode" value="value" aria-pressed="{{ 'true' if chart_mode == 'value' else 'false' }}">Value</button>
+          <button name="mode" value="return" aria-pressed="{{ 'true' if chart_mode == 'return' else 'false' }}">Total return</button>
+        </form>
+        <form method="post" action="{{ url_for('set_chart_settings') }}" class="seg" aria-label="Chart range">
+          <input type="hidden" name="mode" value="{{ chart_mode }}">
+          {% for r in ['1M', 'YTD', '1Y', 'All'] %}<button name="range" value="{{ r }}" aria-pressed="{{ 'true' if chart_range == r else 'false' }}">{{ r }}</button>{% endfor %}
+        </form>
+      </div>
+    </div>
+    <div class="chart-box static">
+      <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="{{ 'Total return' if chart_mode == 'return' else 'Portfolio value' }} from {{ chart_start }} to {{ snapshot.as_of }}">
+        {% if chart.baseline is not none %}<line class="baseline" x1="40" y1="{{ chart.baseline }}" x2="{{ chart.width - 16 }}" y2="{{ chart.baseline }}"/>{% endif %}
+        <line class="baseline" x1="40" y1="{{ chart.height - 26 }}" x2="{{ chart.width - 16 }}" y2="{{ chart.height - 26 }}"/>
+        {% for segment in chart.segments %}<polyline class="line" points="{{ segment }}"/>{% endfor %}
+        {% for marker in chart.markers %}
+        <path class="xfer" d="{% if marker.direction == 'in' %}M {{ marker.x - 5 }},{{ chart.height - 26 }} L {{ marker.x + 5 }},{{ chart.height - 26 }} L {{ marker.x }},{{ chart.height - 34 }} Z{% else %}M {{ marker.x - 5 }},{{ chart.height - 34 }} L {{ marker.x + 5 }},{{ chart.height - 34 }} L {{ marker.x }},{{ chart.height - 26 }} Z{% endif %}"><title>Transfer {{ marker.direction }} · {{ marker.amount|signed(base, 2) }}</title></path>
+        {% endfor %}
+        {% if chart.gaps %}<text class="gaplabel" x="44" y="14">{{ chart.gaps|length }} day{{ '' if chart.gaps|length == 1 else 's' }} without complete price data</text>{% endif %}
+        {% if not chart.segments %}<text class="gaplabel" x="{{ chart.width / 2 }}" y="{{ chart.height / 2 }}" text-anchor="middle">No valued days in this range. Enter prices to draw the chart.</text>{% endif %}
+      </svg>
+    </div>
+    <div class="chart-legend">
+      <span><i class="sw-line"></i>{{ 'Total return, transfer-adjusted' if chart_mode == 'return' else 'Portfolio value (' ~ base ~ ')' }}</span>
+      <span><i class="sw-tri"></i>Transfer in / out</span>
+      <span><i class="sw-gap"></i>No price data (not interpolated)</span>
+    </div>
+    <details class="data-table">
+      <summary>View chart data as a table</summary>
+      <div class="table-wrap"><table class="num">
+        <thead><tr><th>Date</th><th>Value ({{ base }})</th><th>External flow</th><th>Total return</th></tr></thead>
+        <tbody>{% for point in chart_points %}<tr>
+          <td>{{ point.date|long_date }}</td>
+          <td>{{ point.value_base|money(base) if point.value_base is not none else 'no data' }}</td>
+          <td>{{ point.net_external_flow_base|signed(base) if point.net_external_flow_base else '—' }}</td>
+          <td>{{ point.cumulative_return|pct if point.cumulative_return is not none else 'no data' }}</td>
+        </tr>{% endfor %}</tbody>
+      </table></div>
+    </details>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h2>Allocation</h2>
+        <div class="sub">Share of total value, by {{ 'platform' if grouping == 'platform' else 'asset class' }}</div>
+      </div>
+    </div>
+    {% if groups %}
+    <div class="alloc-bar">{% for g in groups if g.value > 0 %}<div title="{{ g.label }}" style="flex:{{ g.value }};background:{{ g.colour }}"></div>{% endfor %}</div>
+    <ul class="alloc-list num">
+      {% for g in groups %}<li><span class="sw" style="background:{{ g.colour }}"></span><span>{{ g.label }}</span><span>{{ g.value|money(base) }}</span><span class="pct">{{ g.allocation|share }}</span></li>{% endfor %}
+    </ul>
+    {% else %}<p class="empty">Nothing valued yet.</p>{% endif %}
+    {% if fx %}
+    <div class="fx-box">Total uses <b>{{ fx.pair }} {{ '%.2f'|format(fx.rate) }}</b> dated <b>{{ fx.date|long_date }}</b> ({{ fx.source }}).<br>{{ fx.foreign_share|share }} of value is {{ fx.pair.split('/')[0] }}-denominated. A {{ '₱' if base == 'PHP' else '' }}1 move in the rate shifts the total by {{ fx.sensitivity|money(base) }}.</div>
+    {% endif %}
+  </div>
+</section>
+
+{# ---------- Holdings ---------- #}
+<section class="card">
+  <div class="card-head">
+    <div>
+      <h2>Holdings</h2>
+      {% set cash_n = snapshot.positions|selectattr('is_cash')|list|length %}
+      <div class="sub">{{ snapshot.positions|length - cash_n }} positions + {{ cash_n }} cash balance{{ '' if cash_n == 1 else 's' }}{% if stale_count %} · <span class="badge stale">⚠ {{ stale_count }} stale</span>{% elif snapshot.positions %} · all prices current{% endif %}</div>
+    </div>
+    <div class="controls">
+      <form method="post" action="{{ url_for('set_dashboard_grouping') }}" class="seg" aria-label="Group holdings">
+        <button name="grouping" value="platform" aria-pressed="{{ 'true' if grouping == 'platform' else 'false' }}">By platform</button>
+        <button name="grouping" value="asset_class" aria-pressed="{{ 'true' if grouping == 'asset_class' else 'false' }}">By asset class</button>
+      </form>
+      <a class="btn" href="{{ url_for('bulk_prices') }}">Enter prices</a>
+      <a class="btn" href="{{ url_for('new_transaction', transaction_type='buy') }}">Record transaction</a>
+      <a class="btn" href="{{ url_for('new_instrument') }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Add asset</a>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table id="holdings">
+      <thead><tr>
+        <th>Instrument</th><th>Qty</th><th>Avg cost</th><th>Last price</th><th>Value (native)</th>
+        <th>Value ({{ base }})</th><th>Unrealised G/L</th><th>Alloc</th><th class="rating">Analyst rating · target</th>
+      </tr></thead>
+      <tbody>
+      {% for g in groups %}
+        <tr class="group">
+          <td><span class="gsw" style="background:{{ g.colour }}"></span>{{ g.label }} <span class="muted small">· {{ g.holdings|length }} holding{{ '' if g.holdings|length == 1 else 's' }}</span></td>
+          <td></td><td></td><td></td><td></td>
+          <td class="num">{{ g.value|money(base) }}</td>
+          <td class="num {{ g.gain_loss|direction }}">{{ g.gain_loss|signed(base) }}</td>
+          <td class="num">{{ g.allocation|share }}</td><td></td>
+        </tr>
+        {% for item in g.holdings %}{% set i = item.instrument %}
+        <tr class="{{ 'is-stale' if item.stale }}">
+          <td><div class="inst-name">{{ (i.native_currency ~ " cash") if item.is_cash else (i.ticker or i.name) }}</div><div class="inst-sub">{{ i.name if i.ticker else '' }}{{ ' · ' if i.ticker }}{{ item.side_label }}</div></td>
+          <td class="num">{{ item.quantity|money(i.native_currency, 2) if item.is_cash else item.quantity|quantity(i.asset_class) }}</td>
+          <td class="num">{% if item.is_cash %}<span class="muted">—</span>{% else %}{{ item.average_cost|unit_price(i.native_currency) }}{% endif %}</td>
+          <td class="price-cell">{% if item.is_cash %}<span class="muted">cash</span>{% else %}
+            <div class="p num">{{ item.price.price|unit_price(item.price.currency) }}{% if item.stale %} <span class="badge stale" title="Older than the last trading day">⚠ stale</span>{% endif %}</div>
+            <div class="inst-sub">{% if item.price.source == 'manual' %}<span class="badge manual" title="Entered {{ item.price.fetched_at|timestamp }}">manual</span> {{ item.price.price_date|short_date }}{% else %}{{ item.price.price_date|short_date }} · {{ item.price.source }}{% endif %}</div>
+          {% endif %}</td>
+          <td class="num">{{ item.market_value_native|money(item.price.currency, 2) }}</td>
+          <td class="num">{{ item.market_value_base|money(base) }}{% if item.fx_row %}<div class="inst-sub">at {{ '%.2f'|format(item.fx) }}</div>{% endif %}</td>
+          <td class="num">{% if item.is_cash %}<span class="muted">—</span>{% else %}<div class="{{ item.unrealised_gain_loss|direction }}">{{ item.unrealised_gain_loss|signed(base) }}</div>{% if item.gain_loss_percent is not none %}<div class="small {{ item.gain_loss_percent|direction }}">{{ item.gain_loss_percent|pct(1) }}</div>{% endif %}{% endif %}</td>
+          <td class="num">{{ item.allocation|share }}</td>
+          <td class="rating">{% if item.is_cash %}<span class="muted">—</span>{% elif item.rating %}
+            <div><span class="r">{{ item.rating.rating }}</span>{% if item.rating.target_price %} · <span class="num">{{ item.rating.target_price|unit_price(item.rating.target_currency) }}</span>{% if item.implied_upside is not none %} <span class="num small {{ item.implied_upside|direction }}">({{ item.implied_upside|pct(1) }} implied)</span>{% endif %}{% endif %}</div>
+            <div class="inst-sub">{{ item.rating.issuer }}{% if item.rating.analyst_count %} · {{ item.rating.analyst_count }} analysts{% endif %} · {{ item.rating.issued_date|short_date }}</div>
+          {% else %}<span class="nocov">{{ item.coverage_label }}</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="9" class="empty">No valued holdings yet. <a href="{{ url_for('new_instrument') }}">Add an asset</a>, record a buy, then enter its price.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if snapshot.excluded %}
+  <div class="fx-box excluded"><b>Excluded from the total</b> · these holdings are not valued at zero.
+    <ul>{% for item in snapshot.excluded %}<li>{{ item.instrument.name }} · {{ item.reason }}. <a href="{{ url_for('prices') }}">Enter it</a>.</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+</section>
+
+{# ---------- Transactions + notes ---------- #}
+<section class="grid-low">
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h2>Recent transactions</h2>
+        <div class="sub">Cash legs are generated from their parent and can't be edited on their own</div>
+      </div>
+      <a class="btn" href="{{ url_for('transactions') }}">All transactions</a>
+    </div>
+    <div class="table-wrap">
+      <table class="tx-list num">
+        <thead><tr><th>Date</th><th>Type</th><th style="text-align:left">Instrument</th><th>Detail</th><th>Amount</th></tr></thead>
+        <tbody>
+        {% for row in recent.rows %}{% set tx = row.tx %}{% set c = tx.currency %}
+          <tr>
+            <td>{{ tx.trade_date|short_date }}</td>
+            <td><span class="tx-type">{{ tx.type }}</span></td>
+            <td style="text-align:left"><b>{{ tx.ticker or tx.instrument_name }}</b> <span class="inst-sub">{{ tx.platform }} · {{ tx.source_type }}</span></td>
+            {% if tx.type == 'dividend' %}
+            <td class="ink2">gross {{ tx.gross_amount|money(c, 2) }} · tax {{ tx.tax_withheld|money(c, 2) }}</td>
+            <td>net {{ tx.net_amount|money(c, 2) }}</td>
+            {% elif tx.type in ('buy', 'sell', 'reward') %}
+            <td class="ink2">{{ tx.quantity|quantity(tx.asset_class) }} @ {{ tx.unit_price|unit_price(c) }}{% if tx.fees %} · fee {{ tx.fees|money(c, 2) }}{% endif %}{% if tx.type == 'sell' and tx.realised_gain_loss is not none %} · realised <span class="{{ tx.realised_gain_loss|direction }}">{{ tx.realised_gain_loss|signed(c, 2) }}</span>{% endif %}</td>
+            <td>{{ (tx.quantity * tx.unit_price)|money(c, 2) }}</td>
+            {% elif tx.type == 'fee' %}
+            <td class="ink2">{{ tx.note or 'Platform fee' }}</td>
+            <td class="down">{{ tx.net_amount|signed(c, 2) }}</td>
+            {% else %}
+            <td class="ink2">{{ tx.note or ('Deposit' if tx.net_amount > 0 else 'Withdrawal') }}</td>
+            <td class="{{ tx.net_amount|direction }}">{{ tx.net_amount|signed(c, 2) }}</td>
+            {% endif %}
+          </tr>
+          {% for leg in row.legs %}
+          <tr class="leg">
+            <td>↳</td><td><span class="lock" title="Generated; edit the parent transaction">🔒</span></td>
+            <td style="text-align:left">{{ leg.instrument_name }} <span class="inst-sub">cash leg of #{{ tx.id }}</span></td><td></td>
+            <td class="{{ leg.net_amount|direction }}">{{ leg.net_amount|signed(leg.currency, 2) }}</td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="5" class="empty">No transactions recorded yet.</td></tr>
+        {% endfor %}
+        {% if recent.total > recent.rows|length %}<tr><td colspan="5" class="muted small" style="text-align:left">Showing the latest {{ recent.rows|length }} of {{ recent.total }} transactions</td></tr>{% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h2>Position notes</h2>
+        <div class="sub">Why positions were opened, held or trimmed</div>
+      </div>
+    </div>
+    <ul class="notes-list">
+      {% for note in notes %}<li><div class="n-head"><b>{{ note.ticker or note.instrument_name }}</b> · {{ note.note_date|long_date }}</div>{{ note.body }}</li>
+      {% else %}<li class="muted">No position notes yet.</li>{% endfor %}
+    </ul>
+  </div>
+</section>
+
 {% endblock %}
