@@ -59,6 +59,8 @@ def create_app(test_config: dict | None = None) -> "Flask":
     from .ledger import record_fee, record_transfer
     from .prices import record_bulk_prices, record_manual_fx_rate, record_manual_price
     from .positions import portfolio_snapshot, position_transactions, positions_as_of
+    from .positions import daily_valuations, transfer_adjusted_returns
+    from .chart import chart_geometry
     from .settings import get_setting, set_setting
     from .corrections import delete_transaction, update_transaction
     from .reconciliation import record_reconciliation
@@ -73,11 +75,21 @@ def create_app(test_config: dict | None = None) -> "Flask":
         with database_connection() as connection:
             snapshot = portfolio_snapshot(connection, base_currency)
             grouping = get_setting(connection, "dashboard_grouping", "platform")
+            chart_mode = get_setting(connection, "chart_mode", "value")
+            chart_range = get_setting(connection, "chart_range", "1Y")
+            first_trade = connection.execute("SELECT MIN(trade_date) FROM transactions").fetchone()[0]
+        from datetime import date, timedelta
+        today = date.today()
+        start = {"1M": today - timedelta(days=30), "YTD": date(today.year, 1, 1), "1Y": today - timedelta(days=365), "All": date.fromisoformat(first_trade) if first_trade else today}[chart_range]
+        with database_connection() as connection:
+            chart_points = daily_valuations(connection, start.isoformat(), today.isoformat(), base_currency)
+        returns = transfer_adjusted_returns(chart_points)
+        chart = chart_geometry(chart_points, "return" if chart_mode == "return" else "value")
         groups = {}
         for item in snapshot["positions"]:
             key = item["instrument"]["platform"] if grouping == "platform" else item["instrument"]["asset_class"]
             groups.setdefault(key, []).append(item)
-        return render_template("dashboard.html", snapshot=snapshot, grouping=grouping, groups=groups)
+        return render_template("dashboard.html", snapshot=snapshot, grouping=grouping, groups=groups, chart=chart, chart_points=chart_points, chart_mode=chart_mode, chart_range=chart_range, returns=returns)
 
     @app.route("/reconciliation", methods=["GET", "POST"])
     def reconciliation():
@@ -101,6 +113,16 @@ def create_app(test_config: dict | None = None) -> "Flask":
             return "Invalid grouping", 400
         with database_connection() as connection:
             set_setting(connection, "dashboard_grouping", grouping)
+        return redirect(url_for("dashboard"))
+
+    @app.post("/dashboard/chart-settings")
+    def set_chart_settings():
+        mode, chart_range = request.form.get("mode"), request.form.get("range")
+        if mode not in ("value", "return") or chart_range not in ("1M", "YTD", "1Y", "All"):
+            return "Invalid chart settings", 400
+        with database_connection() as connection:
+            set_setting(connection, "chart_mode", mode)
+            set_setting(connection, "chart_range", chart_range)
         return redirect(url_for("dashboard"))
 
     @app.get("/positions")

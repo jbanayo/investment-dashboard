@@ -7,7 +7,7 @@ from portfolio.cash import ensure_cash_instruments
 from portfolio.db import connect, migrate
 from portfolio.instruments import create_instrument
 from portfolio.ledger import record_transfer
-from portfolio.positions import daily_valuations
+from portfolio.positions import daily_valuations, transfer_adjusted_returns
 from portfolio.prices import record_manual_fx_rate, record_manual_price
 from portfolio.transactions import record_buy
 
@@ -44,3 +44,20 @@ class DailyValuationTests(unittest.TestCase):
         points = daily_valuations(self.connection, "2026-09-20", "2026-09-20")
         self.assertEqual("gap", points[0]["status"])
         self.assertIsNone(points[0]["value_base"])
+
+    def test_old_weekday_close_becomes_gap_but_weekend_does_not(self):
+        self.connection.execute("DELETE FROM prices WHERE instrument_id = ? AND price_date = '2026-09-21'", (self.instrument,))
+        points = daily_valuations(self.connection, "2026-09-26", "2026-09-28")
+        self.assertEqual("ok", points[0]["status"])
+        self.assertEqual("gap", points[-1]["status"])
+
+    def test_time_weighted_return_removes_deposit_and_skips_gaps(self):
+        points = [
+            {"status": "ok", "value_base": Decimal("100"), "net_external_flow_base": Decimal("0")},
+            {"status": "ok", "value_base": Decimal("200"), "net_external_flow_base": Decimal("100")},
+            {"status": "gap", "value_base": None, "net_external_flow_base": Decimal("0")},
+            {"status": "ok", "value_base": Decimal("220"), "net_external_flow_base": Decimal("0")},
+        ]
+        result = transfer_adjusted_returns(points)
+        self.assertEqual(Decimal("0.1"), result["return_percent"])
+        self.assertEqual(Decimal("20"), result["gain_base"])

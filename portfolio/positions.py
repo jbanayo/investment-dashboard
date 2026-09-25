@@ -170,15 +170,64 @@ def daily_valuations(
         point_date = current.isoformat()
         snapshot = portfolio_snapshot(connection, base_currency, point_date)
         flow = _external_flow_on_date(connection, point_date, base_currency)
+        stale = [item for item in snapshot["positions"] if item["instrument"]["asset_class"] != "cash" and _trading_days_between(item["price"]["price_date"], point_date) > 5]
+        excluded = snapshot["excluded"] + [{**item, "reason": "Price older than 5 trading days"} for item in stale]
         values.append({
             "date": point_date,
-            "value_base": snapshot["total"] if not snapshot["excluded"] else None,
+            "value_base": snapshot["total"] if not excluded else None,
             "net_external_flow_base": flow,
-            "status": "ok" if not snapshot["excluded"] else "gap",
-            "excluded": snapshot["excluded"],
+            "status": "ok" if not excluded else "gap",
+            "excluded": excluded,
+            "transfers": _external_transfers_on_date(connection, point_date),
         })
         current += timedelta(days=1)
     return values
+
+
+def _external_transfers_on_date(connection, flow_date: str):
+    return connection.execute(
+        """SELECT net_amount, currency, note FROM transactions
+           WHERE type = 'transfer' AND is_external_transfer = 1 AND trade_date = ?""",
+        (flow_date,),
+    ).fetchall()
+
+
+def _trading_days_between(start_date: str, end_date: str) -> int:
+    """Weekdays elapsed after a close; weekends do not make a gap."""
+    start, end = date.fromisoformat(start_date), date.fromisoformat(end_date)
+    days, cursor = 0, start + timedelta(days=1)
+    while cursor <= end:
+        if cursor.weekday() < 5:
+            days += 1
+        cursor += timedelta(days=1)
+    return days
+
+
+def transfer_adjusted_returns(points: list[dict]) -> dict:
+    """Time-weighted return and peso gain, never treating a gap as a flat day."""
+    previous = None
+    chained = Decimal("1")
+    flows_since_previous = Decimal("0")
+    total_flows = Decimal("0")
+    first_value = last_value = None
+    for point in points:
+        flow = point["net_external_flow_base"] or Decimal("0")
+        total_flows += flow
+        flows_since_previous += flow
+        if point["status"] != "ok":
+            point["cumulative_return"] = None
+            continue
+        value = point["value_base"]
+        if first_value is None:
+            first_value = value
+            point["cumulative_return"] = Decimal("0")
+        else:
+            period_return = (value - flows_since_previous - previous) / previous if previous else Decimal("0")
+            chained *= Decimal("1") + period_return
+            point["cumulative_return"] = chained - Decimal("1")
+        previous, last_value, flows_since_previous = value, value, Decimal("0")
+    gain = (last_value - first_value - total_flows) if first_value is not None else None
+    return {"return_percent": chained - Decimal("1") if first_value is not None else None, "gain_base": gain, "net_flows": total_flows, "first_value": first_value, "last_value": last_value}
 
 
 def _external_flow_on_date(
