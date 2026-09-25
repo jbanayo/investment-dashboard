@@ -19,7 +19,7 @@
 </header>
 
 {# ---------- KPIs ---------- #}
-<section class="kpis">
+<section class="kpis" data-tour="kpis">
   <div class="card kpi hero">
     <div class="label">Total portfolio value</div>
     <div class="value num">{{ snapshot.total|money(base) }}</div>
@@ -57,7 +57,7 @@
 
 {# ---------- Chart + allocation ---------- #}
 <section class="grid2">
-  <div class="card">
+  <div class="card" data-tour="chart">
     <div class="card-head">
       <div>
         <h2>{{ 'Total return' if chart_mode == 'return' else 'Portfolio value' }}</h2>
@@ -106,7 +106,7 @@
     </details>
   </div>
 
-  <div class="card">
+  <div class="card" data-tour="allocation">
     <div class="card-head">
       <div>
         <h2>Allocation</h2>
@@ -126,7 +126,7 @@
 </section>
 
 {# ---------- Holdings ---------- #}
-<section class="card">
+<section class="card" data-tour="holdings">
   <div class="card-head">
     <div>
       <h2>Holdings</h2>
@@ -192,7 +192,7 @@
 
 {# ---------- Transactions + notes ---------- #}
 <section class="grid-low">
-  <div class="card">
+  <div class="card" data-tour="recent">
     <div class="card-head">
       <div>
         <h2>Recent transactions</h2>

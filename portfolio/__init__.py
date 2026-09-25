@@ -87,7 +87,15 @@ def create_app(test_config: dict | None = None) -> "Flask":
     def inject_app_preferences():
         with database_connection() as connection:
             preferences = portfolio_preferences(connection)
-        return {"app_preferences": preferences}
+            tour_seen = get_setting(connection, "tour_seen", "0") == "1"
+        return {"app_preferences": preferences, "tour_autostart": not tour_seen}
+
+    @app.post("/tour/seen")
+    def mark_tour_seen():
+        # The first-run tour starts once on its own; the nav's Tour button replays it.
+        with database_connection() as connection:
+            set_setting(connection, "tour_seen", "1")
+        return "", 204
 
     @app.get("/")
     def index():
