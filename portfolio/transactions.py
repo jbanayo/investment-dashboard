@@ -58,7 +58,7 @@ def position_as_of(
         """
         SELECT type, quantity, unit_price, fees FROM transactions
         WHERE instrument_id = ? AND parent_transaction_id IS NULL
-          AND type IN ('buy', 'sell') AND trade_date <= ?
+          AND type IN ('buy', 'sell', 'reward') AND trade_date <= ?
         ORDER BY trade_date, id
         """,
         (instrument_id, as_of),
@@ -66,7 +66,7 @@ def position_as_of(
     quantity, average_cost = Decimal("0"), Decimal("0")
     for row in rows:
         row_quantity = Decimal(str(row["quantity"] or 0))
-        if row["type"] == "buy":
+        if row["type"] in ("buy", "reward"):
             total_cost = (quantity * average_cost) + (
                 row_quantity * Decimal(str(row["unit_price"] or 0))
             ) + Decimal(str(row["fees"] or 0))
@@ -193,6 +193,25 @@ def record_dividend(connection: sqlite3.Connection, values) -> int:
     return parent_id
 
 
+def record_reward(connection: sqlite3.Connection, values) -> int:
+    instrument, trade_date, quantity, unit_value, _fees, currency = _trade_values(
+        connection, values, "reward"
+    )
+    if instrument["asset_class"] != "crypto":
+        raise TransactionError("Rewards can only be recorded against a crypto instrument.")
+    return connection.execute(
+        """
+        INSERT INTO transactions
+          (instrument_id, type, trade_date, quantity, unit_price, fees, currency,
+           gross_amount, source_type, note, entered_at, platform)
+        VALUES (?, 'reward', ?, ?, ?, 0, ?, ?, 'manual', ?, CURRENT_TIMESTAMP, ?)
+        """,
+        (instrument["id"], trade_date, float(quantity), float(unit_value), currency,
+         float(quantity * unit_value), values.get("note", "").strip() or None,
+         instrument["platform"]),
+    ).lastrowid
+
+
 def dividend_income(
     connection: sqlite3.Connection, *, instrument_id: int | None = None,
     platform: str | None = None, start_date: str | None = None,
@@ -220,6 +239,20 @@ def dividend_income(
                COALESCE(SUM(t.net_amount), 0) AS net_amount
         FROM transactions t WHERE {' AND '.join(clauses)}
         """,
+        parameters,
+    ).fetchone()
+
+
+def reward_income(connection, instrument_id=None, start_date=None, end_date=None):
+    clauses, parameters = ["type = 'reward'"], []
+    if instrument_id is not None:
+        clauses.append("instrument_id = ?"); parameters.append(instrument_id)
+    if start_date is not None:
+        clauses.append("trade_date >= ?"); parameters.append(start_date)
+    if end_date is not None:
+        clauses.append("trade_date <= ?"); parameters.append(end_date)
+    return connection.execute(
+        f"SELECT COUNT(*) AS payment_count, COALESCE(SUM(gross_amount),0) AS gross_amount FROM transactions WHERE {' AND '.join(clauses)}",
         parameters,
     ).fetchone()
 

@@ -54,6 +54,7 @@ def create_app(test_config: dict | None = None) -> "Flask":
         list_transactions,
         record_buy,
         record_dividend,
+        record_reward,
         record_sell,
     )
     from .ledger import record_fee, record_transfer
@@ -242,7 +243,7 @@ def create_app(test_config: dict | None = None) -> "Flask":
 
     @app.route("/transactions/new/<transaction_type>", methods=["GET", "POST"])
     def new_transaction(transaction_type: str):
-        if transaction_type not in ("buy", "sell", "dividend"):
+        if transaction_type not in ("buy", "sell", "dividend", "reward"):
             return "Transaction type not found", 404
         with database_connection() as connection:
             instruments = connection.execute(
@@ -255,6 +256,8 @@ def create_app(test_config: dict | None = None) -> "Flask":
                         record_buy(connection, request.form)
                     elif transaction_type == "dividend":
                         record_dividend(connection, request.form)
+                    elif transaction_type == "reward":
+                        record_reward(connection, request.form)
                     else:
                         _, gain = record_sell(connection, request.form)
                 message = "Purchase recorded with its generated cash leg."
@@ -262,6 +265,8 @@ def create_app(test_config: dict | None = None) -> "Flask":
                     message = f"Sale recorded with its generated cash leg. Realised gain/loss: {gain:.2f}."
                 elif transaction_type == "dividend":
                     message = "Dividend recorded with its generated net-cash leg."
+                elif transaction_type == "reward":
+                    message = "Reward recorded as income with no cash leg."
                 flash(message)
                 return redirect(url_for("transactions"))
             except TransactionError as error:

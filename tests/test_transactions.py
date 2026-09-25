@@ -8,7 +8,7 @@ from portfolio.db import connect, migrate
 from portfolio.instruments import create_instrument
 from portfolio.transactions import (
     TransactionError, dividend_income, position_as_of, record_buy,
-    record_dividend, record_sell,
+    record_dividend, record_reward, reward_income, record_sell,
 )
 
 
@@ -78,3 +78,13 @@ class TransactionTests(unittest.TestCase):
         values["tax_withheld"] = "11"
         with self.assertRaisesRegex(TransactionError, "cannot exceed"):
             record_dividend(self.connection, values)
+
+    def test_reward_adds_quantity_and_value_to_average_cost_without_cash(self):
+        crypto = create_instrument(self.connection, {"name": "Ether", "ticker": "ETH", "asset_class": "crypto", "platform": "Kraken", "native_currency": "USD", "sector": "", "notes": ""})
+        record_buy(self.connection, {"instrument_id": str(crypto), "trade_date": "2026-09-20", "quantity": "2", "unit_price": "100", "fees": "0", "currency": "USD", "note": "", "zero_price_reason": ""})
+        reward_id = record_reward(self.connection, {"instrument_id": str(crypto), "trade_date": "2026-09-21", "quantity": "1", "unit_price": "130", "fees": "0", "currency": "USD", "note": "", "zero_price_reason": ""})
+        quantity, average_cost = position_as_of(self.connection, crypto, "2026-09-21")
+        self.assertEqual(Decimal("3.0"), quantity)
+        self.assertEqual(Decimal("110.0"), average_cost)
+        self.assertIsNone(self.connection.execute("SELECT id FROM transactions WHERE parent_transaction_id = ?", (reward_id,)).fetchone())
+        self.assertEqual(130, reward_income(self.connection, instrument_id=crypto)["gross_amount"])
