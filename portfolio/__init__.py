@@ -37,7 +37,7 @@ def create_app(test_config: dict | None = None) -> "Flask":
     def database_connection():
         return connect(database_path)
 
-    from flask import flash, redirect, render_template, request, url_for
+    from flask import after_this_request, flash, redirect, render_template, request, send_file, url_for
     from .instruments import (
         ASSET_CLASSES,
         KNOWN_PLATFORMS,
@@ -63,7 +63,10 @@ def create_app(test_config: dict | None = None) -> "Flask":
     from .positions import portfolio_snapshot, position_transactions, positions_as_of
     from .positions import daily_valuations, transfer_adjusted_returns
     from .chart import chart_geometry
-    from .settings import get_setting, set_setting
+    from .settings import (
+        BASE_CURRENCIES, THEMES, get_setting, portfolio_preferences,
+        reset_portfolio_data, save_portfolio_preferences, set_setting,
+    )
     from .corrections import delete_transaction, update_transaction
     from .reconciliation import record_reconciliation
     from .dashboard import (
@@ -80,14 +83,22 @@ def create_app(test_config: dict | None = None) -> "Flask":
 
     app.jinja_env.filters.update(FILTERS)
 
+    @app.context_processor
+    def inject_app_preferences():
+        with database_connection() as connection:
+            preferences = portfolio_preferences(connection)
+        return {"app_preferences": preferences}
+
     @app.get("/")
     def index():
         return redirect(url_for("dashboard"))
 
     @app.get("/dashboard")
     def dashboard():
-        base_currency = app.config.get("BASE_CURRENCY", "PHP")
         with database_connection() as connection:
+            base_currency = get_setting(
+                connection, "portfolio_base_currency", app.config.get("BASE_CURRENCY", "PHP")
+            )
             snapshot = portfolio_snapshot(connection, base_currency)
             grouping = get_setting(connection, "dashboard_grouping", "platform")
             chart_mode = get_setting(connection, "chart_mode", "value")
@@ -116,9 +127,71 @@ def create_app(test_config: dict | None = None) -> "Flask":
             last_refresh=last_refresh, recent=recent, notes=notes, stale_count=stale_count,
         )
 
+    @app.route("/settings", methods=["GET", "POST"])
+    def settings_page():
+        if request.method == "POST":
+            try:
+                with database_connection() as connection:
+                    save_portfolio_preferences(
+                        connection,
+                        request.form.get("display_name", ""),
+                        request.form.get("base_currency", ""),
+                        request.form.get("theme", ""),
+                    )
+                flash("Settings saved.")
+                return redirect(url_for("settings_page"))
+            except ValueError as error:
+                flash(str(error), "error")
+        with database_connection() as connection:
+            preferences = portfolio_preferences(connection)
+        return render_template(
+            "settings.html", preferences=preferences,
+            base_currencies=BASE_CURRENCIES, themes=THEMES,
+            database_path=str(database_path.resolve()),
+        )
+
+    @app.get("/settings/database/export")
+    def export_database():
+        import sqlite3
+        import tempfile
+        export_file = tempfile.NamedTemporaryFile(
+            prefix="portfolio-backup-", suffix=".db", delete=False
+        )
+        export_path = Path(export_file.name)
+        export_file.close()
+        with sqlite3.connect(database_path) as source, sqlite3.connect(export_path) as target:
+            source.backup(target)
+
+        @after_this_request
+        def remove_export(response):
+            try:
+                export_path.unlink(missing_ok=True)
+            finally:
+                return response
+
+        return send_file(
+            export_path, as_attachment=True,
+            download_name="portfolio-backup.db",
+            mimetype="application/vnd.sqlite3",
+        )
+
+    @app.post("/settings/database/reset")
+    def reset_database():
+        if request.form.get("confirmation") != "RESET":
+            flash("Type RESET exactly to confirm data removal.", "error")
+            return redirect(url_for("settings_page"))
+        with database_connection() as connection:
+            reset_portfolio_data(connection)
+            ensure_cash_instruments(connection)
+        flash("Portfolio data reset. Settings were retained.")
+        return redirect(url_for("settings_page"))
+
     @app.route("/reconciliation", methods=["GET", "POST"])
     def reconciliation():
-        base_currency = app.config.get("BASE_CURRENCY", "PHP")
+        with database_connection() as connection:
+            base_currency = get_setting(
+                connection, "portfolio_base_currency", app.config.get("BASE_CURRENCY", "PHP")
+            )
         if request.method == "POST":
             try:
                 with database_connection() as connection:

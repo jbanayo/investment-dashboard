@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Settings · {{ app_preferences.display_name }}{% endblock %}
+{% block content %}
+<header class="top">
+  <div><h1>Settings</h1><div class="meta">Portfolio preferences and local data controls.</div></div>
+</header>
+
+<div class="settings-grid">
+  <form class="card settings-card" method="post">
+    <div class="card-head"><div><h2>Portfolio</h2><div class="sub">Defaults used throughout the dashboard.</div></div></div>
+    <div class="form-grid">
+      <label class="field full">Display name
+        <input class="input" name="display_name" maxlength="80" required value="{{ preferences.display_name }}">
+      </label>
+      <label class="field">Base currency
+        <select class="input" name="base_currency">
+          {% for currency in base_currencies %}<option value="{{ currency }}" {% if preferences.base_currency == currency %}selected{% endif %}>{{ currency }}</option>{% endfor %}
+        </select>
+        <span class="hint">PHP and USD are supported by the current FX model.</span>
+      </label>
+      <label class="field">Appearance
+        <select class="input" name="theme">
+          {% for theme in themes %}<option value="{{ theme }}" {% if preferences.theme == theme %}selected{% endif %}>{{ theme|title }}</option>{% endfor %}
+        </select>
+        <span class="hint">System follows your device appearance.</span>
+      </label>
+    </div>
+    <div class="settings-actions"><button class="btn primary" type="submit">Save settings</button></div>
+  </form>
+
+  <section class="card settings-card">
+    <div class="card-head"><div><h2>Local data</h2><div class="sub">Portfolio data stays on this machine.</div></div></div>
+    <div class="setting-row"><div><b>Database location</b><div class="sub">SQLite database currently in use.</div></div><code class="path-value">{{ database_path }}</code></div>
+    <div class="setting-row"><div><b>Backup / export database</b><div class="sub">Downloads a consistent copy of the current database.</div></div><a class="btn" href="{{ url_for('export_database') }}">Export database</a></div>
+    <div class="danger-zone">
+      <b>Reset sample / test data</b>
+      <p class="sub">Removes instruments, transactions, prices, ratings, notes, documents, and reconciliation records. Your settings remain.</p>
+      <form method="post" action="{{ url_for('reset_database') }}" onsubmit="return confirm('Remove all portfolio data from this database? This cannot be undone.')">
+        <label class="field">Type RESET to confirm
+          <input class="input" name="confirmation" autocomplete="off" required>
+        </label>
+        <button class="btn danger" type="submit">Reset portfolio data</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="card settings-card about-card">
+    <div class="card-head"><div><h2>About</h2><div class="sub">Local Portfolio Dashboard</div></div></div>
+    <div class="setting-row"><span>Developer</span><a href="https://github.com/jbanayo" target="_blank" rel="noreferrer">git: jbanayo</a></div>
+    <div class="setting-row"><span>Storage</span><span>Local SQLite · excluded from Git</span></div>
+  </section>
+</div>
+{% endblock %}

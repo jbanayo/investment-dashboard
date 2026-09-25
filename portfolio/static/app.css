@@ -95,6 +95,7 @@ header.top h1 { font-size: 20px; font-weight: 650; margin: 0 0 4px; letter-spaci
 .btn:hover { background: var(--surface-2); }
 .btn.primary { background: var(--accent); border-color: transparent; color: #fff; }
 .btn.primary:hover { filter: brightness(1.08); }
+.btn.danger { color: var(--down); border-color: color-mix(in srgb, var(--down) 35%, transparent); }
 .btn:disabled { opacity: .55; cursor: default; }
 .icon-btn {
   border: 1px solid transparent; background: transparent; border-radius: 6px;
@@ -117,6 +118,15 @@ header.top h1 { font-size: 20px; font-weight: 650; margin: 0 0 4px; letter-spaci
 }
 .card h2 { font-size: 14px; font-weight: 600; margin: 0; }
 .card .sub { color: var(--muted); font-size: 12.5px; }
+.settings-grid { display: grid; gap: 12px; max-width: 900px; }
+.settings-card { min-width: 0; }
+.settings-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+.setting-row { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 12px 0; border-top: 1px solid var(--border); }
+.setting-row:first-of-type { border-top: 0; }
+.path-value { max-width: 58%; overflow-wrap: anywhere; white-space: normal; text-align: right; color: var(--ink-2); }
+.danger-zone { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+.danger-zone form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-top: 10px; }
+.about-card a { color: var(--accent); }
 .card-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 
 /* KPI row */

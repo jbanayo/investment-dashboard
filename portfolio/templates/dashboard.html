@@ -5,7 +5,7 @@
 
 <header class="top">
   <div>
-    <h1>Portfolio</h1>
+    <h1>{{ app_preferences.display_name }}</h1>
     <div class="meta">
       <span>Base currency <b>{{ base }}</b></span>
       {% if fx %}<span>FX <b class="num">{{ fx.pair }} {{ '%.2f'|format(fx.rate) }} · {{ fx.date|short_date }}</b></span>{% endif %}
