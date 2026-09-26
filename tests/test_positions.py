@@ -66,3 +66,32 @@ class PositionTests(unittest.TestCase):
         )
         self.assertEqual(Decimal("2.5"), position["quantity"])
         self.assertEqual(Decimal("100"), position["average_cost"])
+
+    def test_platform_filter_limits_snapshot_to_one_account(self):
+        record_buy(self.connection, self.trade("2026-09-20", "10", "100"))
+        record_manual_price(self.connection, {
+            "instrument_id": str(self.apple), "price_date": "2026-09-21",
+            "price": "120", "currency": "USD",
+        })
+        record_manual_fx_rate(self.connection, {"rate_date": "2026-09-21", "rate": "50"})
+        record_buy(self.connection, {
+            "instrument_id": str(self.pse), "trade_date": "2026-09-20",
+            "quantity": "2", "unit_price": "10", "fees": "0",
+            "currency": "PHP", "note": "", "zero_price_reason": "",
+        })
+        record_manual_price(self.connection, {
+            "instrument_id": str(self.pse), "price_date": "2026-09-21",
+            "price": "15", "currency": "PHP",
+        })
+
+        snapshot = portfolio_snapshot(
+            self.connection, "PHP", "2026-09-21", platform="IBKR"
+        )
+
+        self.assertTrue(snapshot["positions"])
+        self.assertTrue(all(
+            item["instrument"]["platform"] == "IBKR" for item in snapshot["positions"]
+        ))
+        self.assertFalse(any(
+            item["instrument"]["id"] == self.pse for item in snapshot["positions"]
+        ))

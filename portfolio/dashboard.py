@@ -26,13 +26,18 @@ def _decimal(value) -> Decimal:
     return Decimal(str(value or 0))
 
 
-def dividend_income_base(connection: sqlite3.Connection, start_date: str, end_date: str, base_currency: str) -> dict:
+def dividend_income_base(
+    connection: sqlite3.Connection, start_date: str, end_date: str,
+    base_currency: str, platform: str | None = None,
+) -> dict:
     """Net dividends and withheld tax in the base currency, at each payment date's FX rate."""
+    platform_clause = " AND platform = ?" if platform else ""
+    parameters = (start_date, end_date, platform) if platform else (start_date, end_date)
     rows = connection.execute(
         """SELECT trade_date, currency, tax_withheld, net_amount FROM transactions
            WHERE type = 'dividend' AND parent_transaction_id IS NULL
-             AND trade_date > ? AND trade_date <= ?""",
-        (start_date, end_date),
+             AND trade_date > ? AND trade_date <= ?""" + platform_clause,
+        parameters,
     ).fetchall()
     net = tax = Decimal("0")
     unconverted = 0
@@ -124,21 +129,34 @@ def fx_summary(connection: sqlite3.Connection, snapshot: dict) -> dict | None:
     }
 
 
-def last_price_refresh(connection: sqlite3.Connection) -> str | None:
+def last_price_refresh(connection: sqlite3.Connection, platform: str | None = None) -> str | None:
+    if platform:
+        return connection.execute(
+            """SELECT MAX(p.fetched_at) FROM prices p
+               JOIN instruments i ON i.id = p.instrument_id WHERE i.platform = ?""",
+            (platform,),
+        ).fetchone()[0]
     return connection.execute("SELECT MAX(fetched_at) FROM prices").fetchone()[0]
 
 
-def recent_transactions(connection: sqlite3.Connection, limit: int = RECENT_TRANSACTIONS) -> dict:
+def recent_transactions(
+    connection: sqlite3.Connection, limit: int = RECENT_TRANSACTIONS,
+    platform: str | None = None,
+) -> dict:
     """Latest parent transactions, each with its generated cash legs."""
+    platform_clause = " AND t.platform = ?" if platform else ""
+    parameters = (platform, limit) if platform else (limit,)
     parents = connection.execute(
         """SELECT t.*, i.name AS instrument_name, i.ticker, i.asset_class
            FROM transactions t JOIN instruments i ON i.id = t.instrument_id
            WHERE t.parent_transaction_id IS NULL
-           ORDER BY t.trade_date DESC, t.id DESC LIMIT ?""",
-        (limit,),
+           """ + platform_clause + " ORDER BY t.trade_date DESC, t.id DESC LIMIT ?",
+        parameters,
     ).fetchall()
     total = connection.execute(
         "SELECT COUNT(*) FROM transactions WHERE parent_transaction_id IS NULL"
+        + (" AND platform = ?" if platform else ""),
+        (platform,) if platform else (),
     ).fetchone()[0]
     legs: dict[int, list] = {}
     if parents:
@@ -153,10 +171,12 @@ def recent_transactions(connection: sqlite3.Connection, limit: int = RECENT_TRAN
     return {"rows": [{"tx": p, "legs": legs.get(p["id"], [])} for p in parents], "total": total}
 
 
-def recent_notes(connection: sqlite3.Connection, limit: int = 6):
+def recent_notes(connection: sqlite3.Connection, limit: int = 6, platform: str | None = None):
+    platform_clause = " WHERE i.platform = ?" if platform else ""
+    parameters = (platform, limit) if platform else (limit,)
     return connection.execute(
         """SELECT n.note_date, n.body, i.name AS instrument_name, i.ticker
            FROM notes n JOIN instruments i ON i.id = n.instrument_id
-           ORDER BY n.note_date DESC, n.id DESC LIMIT ?""",
-        (limit,),
+           """ + platform_clause + " ORDER BY n.note_date DESC, n.id DESC LIMIT ?",
+        parameters,
     ).fetchall()

@@ -14,11 +14,17 @@ def _decimal(value) -> Decimal:
 
 
 def positions_as_of(
-    connection: sqlite3.Connection, as_of: str | None = None, *, include_zero: bool = False
+    connection: sqlite3.Connection, as_of: str | None = None, *, include_zero: bool = False,
+    platform: str | None = None,
 ) -> list[dict]:
     """Compute quantity and average cost for every instrument at a date."""
     as_of = as_of or date.today().isoformat()
-    instruments = connection.execute("SELECT * FROM instruments ORDER BY platform, name").fetchall()
+    if platform:
+        instruments = connection.execute(
+            "SELECT * FROM instruments WHERE platform = ? ORDER BY platform, name", (platform,)
+        ).fetchall()
+    else:
+        instruments = connection.execute("SELECT * FROM instruments ORDER BY platform, name").fetchall()
     positions = []
     for instrument in instruments:
         if instrument["asset_class"] == "cash":
@@ -74,7 +80,7 @@ def _latest_price(connection: sqlite3.Connection, instrument_id: int, as_of: str
     return connection.execute(
         """
         SELECT * FROM prices WHERE instrument_id = ? AND price_date <= ?
-        ORDER BY price_date DESC, fetched_at DESC LIMIT 1
+        ORDER BY price_date DESC, (source = 'manual') DESC, fetched_at DESC LIMIT 1
         """,
         (instrument_id, as_of),
     ).fetchone()
@@ -84,7 +90,7 @@ def _previous_price(connection: sqlite3.Connection, instrument_id: int, current_
     return connection.execute(
         """
         SELECT * FROM prices WHERE instrument_id = ? AND price_date < ?
-        ORDER BY price_date DESC, fetched_at DESC LIMIT 1
+        ORDER BY price_date DESC, (source = 'manual') DESC, fetched_at DESC LIMIT 1
         """,
         (instrument_id, current_date),
     ).fetchone()
@@ -121,14 +127,15 @@ def last_trading_day(today: date | None = None) -> date:
 
 
 def portfolio_snapshot(
-    connection: sqlite3.Connection, base_currency: str = "PHP", as_of: str | None = None
+    connection: sqlite3.Connection, base_currency: str = "PHP", as_of: str | None = None,
+    platform: str | None = None,
 ) -> dict:
     """Value all positions, preserving missing data rather than assigning zero."""
     as_of = as_of or date.today().isoformat()
     base_currency = base_currency.upper()
     valued, excluded = [], []
     total, daily_change = Decimal("0"), Decimal("0")
-    for position in positions_as_of(connection, as_of):
+    for position in positions_as_of(connection, as_of, platform=platform):
         instrument = position["instrument"]
         if instrument["asset_class"] == "cash":
             price = {"price": 1, "price_date": as_of, "currency": instrument["native_currency"], "source": "cash"}
@@ -161,7 +168,7 @@ def portfolio_snapshot(
 
 def daily_valuations(
     connection: sqlite3.Connection, start_date: str, end_date: str,
-    base_currency: str = "PHP",
+    base_currency: str = "PHP", platform: str | None = None,
 ) -> list[dict]:
     """Calculate a non-cached end-of-day portfolio value series.
 
@@ -178,8 +185,8 @@ def daily_valuations(
     current = start
     while current <= end:
         point_date = current.isoformat()
-        snapshot = portfolio_snapshot(connection, base_currency, point_date)
-        flow = _external_flow_on_date(connection, point_date, base_currency)
+        snapshot = portfolio_snapshot(connection, base_currency, point_date, platform)
+        flow = _external_flow_on_date(connection, point_date, base_currency, platform)
         stale = [item for item in snapshot["positions"] if item["instrument"]["asset_class"] != "cash" and _trading_days_between(item["price"]["price_date"], point_date) > 5]
         excluded = snapshot["excluded"] + [{**item, "reason": "Price older than 5 trading days"} for item in stale]
         values.append({
@@ -188,17 +195,20 @@ def daily_valuations(
             "net_external_flow_base": flow,
             "status": "ok" if not excluded else "gap",
             "excluded": excluded,
-            "transfers": _external_transfers_on_date(connection, point_date),
+            "transfers": _external_transfers_on_date(connection, point_date, platform),
         })
         current += timedelta(days=1)
     return values
 
 
-def _external_transfers_on_date(connection, flow_date: str):
+def _external_transfers_on_date(connection, flow_date: str, platform: str | None = None):
+    platform_clause = " AND platform = ?" if platform else ""
+    parameters = (flow_date, platform) if platform else (flow_date,)
     return connection.execute(
         """SELECT net_amount, currency, note FROM transactions
-           WHERE type = 'transfer' AND is_external_transfer = 1 AND trade_date = ?""",
-        (flow_date,),
+           WHERE type = 'transfer' AND is_external_transfer = 1 AND trade_date = ?"""
+        + platform_clause,
+        parameters,
     ).fetchall()
 
 
@@ -241,14 +251,17 @@ def transfer_adjusted_returns(points: list[dict]) -> dict:
 
 
 def _external_flow_on_date(
-    connection: sqlite3.Connection, flow_date: str, base_currency: str
+    connection: sqlite3.Connection, flow_date: str, base_currency: str,
+    platform: str | None = None,
 ) -> Decimal | None:
+    platform_clause = " AND platform = ?" if platform else ""
+    parameters = (flow_date, platform) if platform else (flow_date,)
     rows = connection.execute(
         """
         SELECT net_amount, currency FROM transactions
         WHERE type = 'transfer' AND is_external_transfer = 1 AND trade_date = ?
-        """,
-        (flow_date,),
+        """ + platform_clause,
+        parameters,
     ).fetchall()
     total = Decimal("0")
     for row in rows:

@@ -34,7 +34,7 @@ class FetchContractTests(unittest.TestCase):
             def __exit__(self, *args): return False
             def read(self): return b'{"ok": true}'
 
-        def fake_urlopen(url, timeout):
+        def fake_urlopen(url, timeout, context):
             captured.update(url=url, timeout=timeout)
             return Response()
 

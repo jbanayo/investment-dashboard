@@ -5,7 +5,16 @@
 
 <header class="top">
   <div>
-    <h1>{{ app_preferences.display_name }}</h1>
+    <div class="dashboard-title-row">
+      <h1>{{ (selected_platform ~ ' Portfolio') if selected_platform else app_preferences.display_name }}</h1>
+      <form method="post" action="{{ url_for('set_dashboard_platform') }}">
+        <label class="sr-only" for="dashboard-platform">Dashboard platform</label>
+        <select id="dashboard-platform" class="platform-select" name="platform" onchange="this.form.submit()">
+          <option value="__all__" {% if not selected_platform %}selected{% endif %}>All platforms</option>
+          {% for platform in platforms %}<option value="{{ platform }}" {% if selected_platform == platform %}selected{% endif %}>{{ platform }}</option>{% endfor %}
+        </select>
+      </form>
+    </div>
     <div class="meta">
       <span>Base currency <b>{{ base }}</b></span>
       {% if fx %}<span>FX <b class="num">{{ fx.pair }} {{ '%.2f'|format(fx.rate) }} · {{ fx.date|short_date }}</b></span>{% endif %}
@@ -13,6 +22,7 @@
     </div>
   </div>
   <div class="actions">
+    {% if not selected_platform or selected_platform == 'Kraken' %}<form method="post" action="{{ url_for('refresh_crypto_prices') }}"><input type="hidden" name="return_to" value="dashboard"><button class="btn">Refresh crypto prices</button></form>{% endif %}
     <a class="btn" href="{{ url_for('new_instrument') }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Add asset</a>
     <a class="btn primary" href="{{ url_for('bulk_prices') }}">Enter prices</a>
   </div>

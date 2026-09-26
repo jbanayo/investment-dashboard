@@ -174,8 +174,7 @@ def main(pdf_path: Path) -> None:
         {x["ticker"] for x in trades} | {x["ticker"] for x in dividends}
         | {x[1] for x in CORPORATE_ACTIONS} | set(ENDING)
     )
-    # Yahoo currently returns 404 for PSE symbols. Trade-date executions and the
-    # statement's ending prices remain authoritative; instruments are marked no coverage.
+    # Market prices are fetched on demand through the app's Twelve Data adapter.
     histories = {ticker: {} for ticker in all_tickers}
     print("Fetching USD/PHP daily FX...")
     fx_history = fetch_chart("PHP=X")

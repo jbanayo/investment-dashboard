@@ -8,7 +8,7 @@ ASSET_CLASSES = (
     "ph_equity", "us_equity", "crypto", "etf", "fund", "cash", "other",
 )
 KNOWN_PLATFORMS = ("BDO Securities", "IBKR", "Kraken")
-PRICE_SOURCES = ("manual", "kraken", "yahoo_finance")
+PRICE_SOURCES = ("manual", "kraken", "twelve_data", "yahoo_finance")
 COVERAGE_STATUSES = ("covered", "no_coverage", "not_applicable_crypto", "not_applicable_index_etf", "cash")
 
 

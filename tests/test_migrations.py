@@ -29,10 +29,11 @@ class MigrationTests(unittest.TestCase):
                 {
                     "instruments", "transactions", "prices", "fx_rates",
                     "ratings", "documents", "notes", "schema_migrations",
+                    "price_fetch_usage",
                 }.issubset(tables)
             )
             self.assertEqual(
-                8,
+                9,
                 connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0],
             )
 

@@ -23,6 +23,7 @@ def create_app(test_config: dict | None = None) -> "Flask":
         DATABASE=os.environ.get("PORTFOLIO_DATABASE", str(default_database)),
         BASE_CURRENCY=os.environ.get("PORTFOLIO_BASE_CURRENCY", "PHP").upper(),
         SECRET_KEY=os.environ.get("PORTFOLIO_SECRET_KEY", "local-development-only"),
+        TWELVE_DATA_API_KEY=os.environ.get("TWELVE_DATA_API_KEY", ""),
     )
 
     if test_config:
@@ -33,6 +34,11 @@ def create_app(test_config: dict | None = None) -> "Flask":
     migrate(database_path)
     with connect(database_path) as connection:
         ensure_cash_instruments(connection)
+
+    if not app.config["TWELVE_DATA_API_KEY"]:
+        key_file = Path(app.instance_path) / "twelve_data_api_key"
+        if key_file.exists():
+            app.config["TWELVE_DATA_API_KEY"] = key_file.read_text().strip()
 
     def database_connection():
         return connect(database_path)
@@ -80,6 +86,7 @@ def create_app(test_config: dict | None = None) -> "Flask":
         unrealised_totals,
     )
     from .formatting import FILTERS
+    from .fetch import refresh_twelve_data_crypto_prices, twelve_data_usage
 
     app.jinja_env.filters.update(FILTERS)
 
@@ -107,25 +114,40 @@ def create_app(test_config: dict | None = None) -> "Flask":
             base_currency = get_setting(
                 connection, "portfolio_base_currency", app.config.get("BASE_CURRENCY", "PHP")
             )
-            snapshot = portfolio_snapshot(connection, base_currency)
+            platforms = [row["platform"] for row in connection.execute(
+                """SELECT DISTINCT platform FROM transactions
+                   WHERE parent_transaction_id IS NULL ORDER BY platform"""
+            )]
+            selected_platform = get_setting(connection, "dashboard_platform", "__all__")
+            if selected_platform == "__all__" or selected_platform not in platforms:
+                selected_platform = None
+            snapshot = portfolio_snapshot(connection, base_currency, platform=selected_platform)
             grouping = get_setting(connection, "dashboard_grouping", "platform")
             chart_mode = get_setting(connection, "chart_mode", "value")
             chart_range = get_setting(connection, "chart_range", "1Y")
-            first_trade = connection.execute("SELECT MIN(trade_date) FROM transactions").fetchone()[0]
+            first_trade = connection.execute(
+                "SELECT MIN(trade_date) FROM transactions"
+                + (" WHERE platform = ?" if selected_platform else ""),
+                (selected_platform,) if selected_platform else (),
+            ).fetchone()[0]
         from datetime import date, timedelta
         today = date.today()
         start = {"1M": today - timedelta(days=30), "YTD": date(today.year, 1, 1), "1Y": today - timedelta(days=365), "All": date.fromisoformat(first_trade) if first_trade else today}[chart_range]
         with database_connection() as connection:
-            chart_points = daily_valuations(connection, start.isoformat(), today.isoformat(), base_currency)
+            chart_points = daily_valuations(
+                connection, start.isoformat(), today.isoformat(), base_currency, selected_platform
+            )
         returns = transfer_adjusted_returns(chart_points)
         chart = chart_geometry(chart_points, "return" if chart_mode == "return" else "value")
         with database_connection() as connection:
             groups = holdings_groups(connection, snapshot, grouping)
-            dividends = dividend_income_base(connection, start.isoformat(), today.isoformat(), base_currency)
+            dividends = dividend_income_base(
+                connection, start.isoformat(), today.isoformat(), base_currency, selected_platform
+            )
             fx = fx_summary(connection, snapshot)
-            last_refresh = last_price_refresh(connection)
-            recent = recent_transactions(connection)
-            notes = recent_notes(connection)
+            last_refresh = last_price_refresh(connection, selected_platform)
+            recent = recent_transactions(connection, platform=selected_platform)
+            notes = recent_notes(connection, platform=selected_platform)
         stale_count = sum(1 for item in snapshot["positions"] if item["stale"])
         return render_template(
             "dashboard.html", snapshot=snapshot, grouping=grouping, groups=groups, chart=chart,
@@ -133,6 +155,7 @@ def create_app(test_config: dict | None = None) -> "Flask":
             range_name=RANGE_NAMES[chart_range], chart_start=start.isoformat(), returns=returns,
             unrealised=unrealised_totals(snapshot), dividends=dividends, fx=fx,
             last_refresh=last_refresh, recent=recent, notes=notes, stale_count=stale_count,
+            platforms=platforms, selected_platform=selected_platform,
         )
 
     @app.route("/settings", methods=["GET", "POST"])
@@ -219,6 +242,20 @@ def create_app(test_config: dict | None = None) -> "Flask":
             return "Invalid grouping", 400
         with database_connection() as connection:
             set_setting(connection, "dashboard_grouping", grouping)
+        return redirect(url_for("dashboard"))
+
+    @app.post("/dashboard/platform")
+    def set_dashboard_platform():
+        platform = request.form.get("platform", "__all__")
+        with database_connection() as connection:
+            valid_platforms = {
+                row["platform"] for row in connection.execute(
+                    "SELECT DISTINCT platform FROM transactions WHERE parent_transaction_id IS NULL"
+                )
+            }
+            if platform != "__all__" and platform not in valid_platforms:
+                return "Invalid platform", 400
+            set_setting(connection, "dashboard_platform", platform)
         return redirect(url_for("dashboard"))
 
     @app.post("/dashboard/chart-settings")
@@ -434,8 +471,37 @@ def create_app(test_config: dict | None = None) -> "Flask":
             fx_rates = connection.execute(
                 "SELECT * FROM fx_rates WHERE base_currency = 'USD' AND quote_currency = 'PHP' ORDER BY rate_date DESC"
             ).fetchall()
+            twelve_used, twelve_remaining = twelve_data_usage(connection)
         price_by_instrument = {price["instrument_id"]: price for price in latest_prices}
-        return render_template("prices.html", instruments=instruments, price_by_instrument=price_by_instrument, fx_rates=fx_rates)
+        return render_template(
+            "prices.html", instruments=instruments, price_by_instrument=price_by_instrument,
+            fx_rates=fx_rates, twelve_used=twelve_used, twelve_remaining=twelve_remaining,
+            twelve_configured=bool(app.config["TWELVE_DATA_API_KEY"]),
+        )
+
+    @app.post("/prices/refresh/crypto")
+    def refresh_crypto_prices():
+        try:
+            with database_connection() as connection:
+                result = refresh_twelve_data_crypto_prices(
+                    connection, app.config["TWELVE_DATA_API_KEY"]
+                )
+            message = (
+                f"Twelve Data refreshed {result.instruments_updated} crypto instruments and saved "
+                f"{result.prices_written:,} daily prices using {result.requests_used} requests. "
+                f"{result.requests_remaining} requests remain today."
+            )
+            if result.instruments_pending:
+                message += f" {result.instruments_pending} instruments still need a later refresh."
+            if result.failures:
+                message += " Failed: " + "; ".join(f.message for f in result.failures)
+                flash(message, "error")
+            else:
+                flash(message)
+        except (RuntimeError, ValueError) as error:
+            flash(str(error), "error")
+        destination = "dashboard" if request.form.get("return_to") == "dashboard" else "prices"
+        return redirect(url_for(destination))
 
     @app.route("/prices/new", methods=["GET", "POST"])
     def new_price():

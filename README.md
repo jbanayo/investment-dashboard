@@ -35,6 +35,17 @@ database's `schema_migrations` table and may safely be run repeatedly.
 Dashboard totals default to PHP. Set `PORTFOLIO_BASE_CURRENCY` to use another
 base currency once its matching FX series has been entered.
 
+## Crypto price refresh
+
+Kraken crypto instruments can fetch daily closes from Twelve Data. Configure the API key
+through `TWELVE_DATA_API_KEY`, or put only the key in the ignored local file
+`instance/twelve_data_api_key`. The key and fetched portfolio data are never
+committed to Git.
+
+The application keeps persistent UTC minute and day request counters in SQLite.
+It refuses request 9 in a minute and request 801 in a provider day. Failed and
+timed-out requests count toward both limits.
+
 ## Run
 
 Install Flask, then run the app:

@@ -230,8 +230,8 @@ def instrument_id(connection: sqlite3.Connection, ticker: str) -> int:
     return connection.execute(
         """INSERT INTO instruments
            (name,ticker,asset_class,platform,native_currency,sector,notes,price_source,source_symbol,coverage_status)
-           VALUES (?,?,'crypto','Kraken','USD',NULL,?,'kraken',?,'covered')""",
-        (NAMES[ticker], ticker, "Imported from Kraken screenshots; execution prices estimated from daily USD closes.", f"{ticker}USD"),
+           VALUES (?,?,'crypto','Kraken','USD',NULL,?,'twelve_data',?,'covered')""",
+        (NAMES[ticker], ticker, "Imported from Kraken screenshots; execution prices estimated from daily USD closes.", f"{ticker}/USD"),
     ).lastrowid
 
 
