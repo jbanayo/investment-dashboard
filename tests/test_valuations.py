@@ -39,6 +39,31 @@ class DailyValuationTests(unittest.TestCase):
         self.assertEqual(Decimal("56100.0"), points[1]["value_base"])
         self.assertEqual(Decimal("0"), points[1]["net_external_flow_base"])
 
+    def test_imported_trade_without_cash_leg_is_inferred_as_capital_flow(self):
+        imported = create_instrument(self.connection, {
+            "name": "Imported", "ticker": "IMP", "asset_class": "us_equity",
+            "platform": "Imported Broker", "native_currency": "USD",
+            "sector": "", "notes": "",
+        })
+        self.connection.execute(
+            """INSERT INTO transactions
+               (instrument_id,type,trade_date,quantity,unit_price,fees,currency,
+                source_type,platform)
+               VALUES (?,'buy','2026-09-21',2,50,1,'USD','import','Imported Broker')""",
+            (imported,),
+        )
+        record_manual_price(self.connection, {
+            "instrument_id": str(imported), "price_date": "2026-09-21",
+            "price": "50", "currency": "USD",
+        })
+
+        point = daily_valuations(
+            self.connection, "2026-09-21", "2026-09-21", "USD", "Imported Broker"
+        )[0]
+
+        self.assertEqual(Decimal("101.0"), point["net_external_flow_base"])
+        self.assertTrue(point["inferred_flow"])
+
     def test_missing_historical_price_uses_average_cost_assumption(self):
         self.connection.execute("DELETE FROM prices WHERE instrument_id = ?", (self.instrument,))
         points = daily_valuations(self.connection, "2026-09-20", "2026-09-20")
@@ -80,3 +105,15 @@ class DailyValuationTests(unittest.TestCase):
         result = transfer_adjusted_returns(points)
         self.assertEqual(Decimal("0.1"), result["return_percent"])
         self.assertEqual(Decimal("20"), result["gain_base"])
+
+    def test_opening_day_flow_is_embedded_in_opening_value(self):
+        points = [
+            {"status": "ok", "value_base": Decimal("100"), "net_external_flow_base": Decimal("100")},
+            {"status": "ok", "value_base": Decimal("110"), "net_external_flow_base": Decimal("0")},
+        ]
+
+        result = transfer_adjusted_returns(points)
+
+        self.assertEqual(Decimal("0.1"), result["return_percent"])
+        self.assertEqual(Decimal("10"), result["gain_base"])
+        self.assertEqual(Decimal("0"), result["net_flows"])

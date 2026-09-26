@@ -190,7 +190,9 @@ def daily_valuations(
     while current <= end:
         point_date = current.isoformat()
         snapshot = portfolio_snapshot(connection, base_currency, point_date, platform)
-        flow = _external_flow_on_date(connection, point_date, base_currency, platform)
+        flow, inferred_flow = _return_flow_on_date(
+            connection, point_date, base_currency, platform
+        )
         stale = [item for item in snapshot["positions"] if item["instrument"]["asset_class"] != "cash" and _trading_days_between(item["price"]["price_date"], point_date) > 5]
         assumed = [{
             **item,
@@ -227,6 +229,7 @@ def daily_valuations(
             "date": point_date,
             "value_base": snapshot["total"] + assumed_value if not excluded else None,
             "net_external_flow_base": flow,
+            "inferred_flow": inferred_flow,
             "status": "ok" if not excluded else "gap",
             "excluded": excluded,
             "assumed": assumed,
@@ -263,11 +266,10 @@ def transfer_adjusted_returns(points: list[dict]) -> dict:
     previous = None
     chained = Decimal("1")
     flows_since_previous = Decimal("0")
-    total_flows = Decimal("0")
+    flows_after_start = Decimal("0")
     first_value = last_value = None
     for point in points:
         flow = point["net_external_flow_base"] or Decimal("0")
-        total_flows += flow
         flows_since_previous += flow
         if point["status"] != "ok":
             point["cumulative_return"] = None
@@ -277,31 +279,65 @@ def transfer_adjusted_returns(points: list[dict]) -> dict:
             first_value = value
             point["cumulative_return"] = Decimal("0")
         else:
+            flows_after_start += flows_since_previous
             period_return = (value - flows_since_previous - previous) / previous if previous else Decimal("0")
             chained *= Decimal("1") + period_return
             point["cumulative_return"] = chained - Decimal("1")
         previous, last_value, flows_since_previous = value, value, Decimal("0")
-    gain = (last_value - first_value - total_flows) if first_value is not None else None
-    return {"return_percent": chained - Decimal("1") if first_value is not None else None, "gain_base": gain, "net_flows": total_flows, "first_value": first_value, "last_value": last_value}
+    gain = (last_value - first_value - flows_after_start) if first_value is not None else None
+    return {"return_percent": chained - Decimal("1") if first_value is not None else None, "gain_base": gain, "net_flows": flows_after_start, "first_value": first_value, "last_value": last_value}
 
 
-def _external_flow_on_date(
+def _return_flow_on_date(
     connection: sqlite3.Connection, flow_date: str, base_currency: str,
     platform: str | None = None,
-) -> Decimal | None:
+) -> tuple[Decimal | None, bool]:
+    """Return capital flow used to neutralize ledger activity in returns.
+
+    Imported broker trades sometimes omit their cash legs. In that case a buy
+    or sell would otherwise look like investment performance, so its cash
+    consideration is inferred. Dividends without a retained cash credit are
+    treated as distributions. Explicit external transfers remain authoritative.
+    """
     platform_clause = " AND platform = ?" if platform else ""
     parameters = (flow_date, platform) if platform else (flow_date,)
     rows = connection.execute(
         """
-        SELECT net_amount, currency FROM transactions
-        WHERE type = 'transfer' AND is_external_transfer = 1 AND trade_date = ?
+        SELECT t.*,
+          EXISTS(SELECT 1 FROM transactions child WHERE child.parent_transaction_id = t.id)
+            AS has_cash_leg
+        FROM transactions t
+        WHERE t.parent_transaction_id IS NULL AND t.trade_date = ?
         """ + platform_clause,
         parameters,
     ).fetchall()
     total = Decimal("0")
+    inferred = False
     for row in rows:
+        amount = None
+        if row["is_external_transfer"]:
+            amount = _decimal(row["net_amount"])
+        elif row["type"] in ("buy", "sell") and not row["has_cash_leg"]:
+            gross = _decimal(row["quantity"]) * _decimal(row["unit_price"])
+            amount = (
+                gross + _decimal(row["fees"])
+                if row["type"] == "buy"
+                else -(gross - _decimal(row["fees"]))
+            )
+            inferred = True
+        elif row["type"] == "dividend" and not row["has_cash_leg"]:
+            amount = -_decimal(row["net_amount"])
+            inferred = True
+        elif (
+            row["type"] == "transfer" and row["note"]
+            and "quantity reconciliation" in row["note"].lower()
+        ):
+            amount = _decimal(row["quantity"]) * _decimal(row["unit_price"])
+            inferred = True
+        if amount is None:
+            continue
         fx, _ = _fx_rate(connection, row["currency"], base_currency.upper(), flow_date)
         if fx is None:
-            return None
-        total += _decimal(row["net_amount"]) * fx
-    return total
+            return None, inferred
+        total += amount * fx
+    return total, inferred

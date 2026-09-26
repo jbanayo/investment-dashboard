@@ -36,6 +36,11 @@ series ends. Every affected chart day is marked **assumed**. The latest dashboar
 value still uses the newest recorded market, statement, or manual price, so the
 end of the chart matches the displayed portfolio total.
 
+Return calculations use recorded deposits and withdrawals. When an imported
+trade has no matching cash-ledger entry, the app infers that trade's funding or
+proceeds so buying an asset is not misreported as investment profit. These rows
+are marked **inferred** in the chart data table.
+
 ## Download
 
 Clone the repository and enter the project directory:
