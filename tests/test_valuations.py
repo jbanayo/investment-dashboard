@@ -39,17 +39,36 @@ class DailyValuationTests(unittest.TestCase):
         self.assertEqual(Decimal("56100.0"), points[1]["value_base"])
         self.assertEqual(Decimal("0"), points[1]["net_external_flow_base"])
 
-    def test_missing_historical_price_is_a_gap(self):
+    def test_missing_historical_price_uses_average_cost_assumption(self):
         self.connection.execute("DELETE FROM prices WHERE instrument_id = ?", (self.instrument,))
         points = daily_valuations(self.connection, "2026-09-20", "2026-09-20")
-        self.assertEqual("gap", points[0]["status"])
-        self.assertIsNone(points[0]["value_base"])
+        self.assertEqual("ok", points[0]["status"])
+        self.assertEqual(Decimal("50000.0"), points[0]["value_base"])
+        self.assertEqual("Average cost used until first recorded price", points[0]["assumed"][0]["assumption"])
 
-    def test_old_weekday_close_becomes_gap_but_weekend_does_not(self):
+    def test_old_weekday_close_is_marked_as_assumed(self):
         self.connection.execute("DELETE FROM prices WHERE instrument_id = ? AND price_date = '2026-09-21'", (self.instrument,))
         points = daily_valuations(self.connection, "2026-09-26", "2026-09-28")
         self.assertEqual("ok", points[0]["status"])
-        self.assertEqual("gap", points[-1]["status"])
+        self.assertEqual("ok", points[-1]["status"])
+        self.assertEqual("Last known price carried forward", points[-1]["assumed"][0]["assumption"])
+
+    def test_opted_in_delisted_asset_carries_its_last_price(self):
+        self.connection.execute(
+            "UPDATE instruments SET carry_forward_price = 1 WHERE id = ?",
+            (self.instrument,),
+        )
+        self.connection.execute(
+            "DELETE FROM prices WHERE instrument_id = ? AND price_date = '2026-09-21'",
+            (self.instrument,),
+        )
+
+        point = daily_valuations(self.connection, "2026-09-28", "2026-09-28")[0]
+
+        self.assertEqual("ok", point["status"])
+        self.assertEqual(Decimal("51000.000"), point["value_base"])
+        self.assertEqual([self.instrument], [item["instrument"]["id"] for item in point["assumed"]])
+        self.assertEqual("Unchanged price carried forward", point["assumed"][0]["assumption"])
 
     def test_time_weighted_return_removes_deposit_and_skips_gaps(self):
         points = [

@@ -8,7 +8,7 @@ ASSET_CLASSES = (
     "ph_equity", "us_equity", "crypto", "etf", "fund", "cash", "other",
 )
 KNOWN_PLATFORMS = ("BDO Securities", "IBKR", "Kraken")
-PRICE_SOURCES = ("manual", "kraken", "twelve_data", "yahoo_finance")
+PRICE_SOURCES = ("manual", "kraken", "twelve_data", "pse_edge", "yahoo_finance")
 COVERAGE_STATUSES = ("covered", "no_coverage", "not_applicable_crypto", "not_applicable_index_etf", "cash")
 
 
@@ -45,6 +45,7 @@ def _clean(values: dict[str, str]) -> dict[str, str | None]:
         "notes": values.get("notes", "").strip() or None,
         "price_source": values.get("price_source", "manual").strip() or "manual",
         "source_symbol": values.get("source_symbol", "").strip().upper() or None,
+        "carry_forward_price": 1 if values.get("carry_forward_price") in ("1", "on", "true") else 0,
         "coverage_status": coverage_status,
     }
 
@@ -71,8 +72,8 @@ def create_instrument(connection: sqlite3.Connection, values: dict[str, str]) ->
     cursor = connection.execute(
         """
         INSERT INTO instruments
-            (name, ticker, asset_class, platform, native_currency, sector, notes, price_source, source_symbol, coverage_status)
-        VALUES (:name, :ticker, :asset_class, :platform, :native_currency, :sector, :notes, :price_source, :source_symbol, :coverage_status)
+            (name, ticker, asset_class, platform, native_currency, sector, notes, price_source, source_symbol, carry_forward_price, coverage_status)
+        VALUES (:name, :ticker, :asset_class, :platform, :native_currency, :sector, :notes, :price_source, :source_symbol, :carry_forward_price, :coverage_status)
         """,
         data,
     )
@@ -103,7 +104,7 @@ def update_instrument(
         UPDATE instruments SET name = :name, ticker = :ticker, asset_class = :asset_class,
             platform = :platform, native_currency = :native_currency, sector = :sector,
             notes = :notes, price_source = :price_source, source_symbol = :source_symbol,
-            coverage_status = :coverage_status
+            carry_forward_price = :carry_forward_price, coverage_status = :coverage_status
         WHERE id = :id
         """,
         data,

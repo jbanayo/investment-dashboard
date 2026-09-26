@@ -80,7 +80,9 @@ def _latest_price(connection: sqlite3.Connection, instrument_id: int, as_of: str
     return connection.execute(
         """
         SELECT * FROM prices WHERE instrument_id = ? AND price_date <= ?
-        ORDER BY price_date DESC, (source = 'manual') DESC, fetched_at DESC LIMIT 1
+        ORDER BY price_date DESC,
+          CASE source WHEN 'manual' THEN 3 WHEN 'BDO statement ending position' THEN 2 ELSE 1 END DESC,
+          fetched_at DESC LIMIT 1
         """,
         (instrument_id, as_of),
     ).fetchone()
@@ -90,7 +92,9 @@ def _previous_price(connection: sqlite3.Connection, instrument_id: int, current_
     return connection.execute(
         """
         SELECT * FROM prices WHERE instrument_id = ? AND price_date < ?
-        ORDER BY price_date DESC, (source = 'manual') DESC, fetched_at DESC LIMIT 1
+        ORDER BY price_date DESC,
+          CASE source WHEN 'manual' THEN 3 WHEN 'BDO statement ending position' THEN 2 ELSE 1 END DESC,
+          fetched_at DESC LIMIT 1
         """,
         (instrument_id, current_date),
     ).fetchone()
@@ -173,9 +177,9 @@ def daily_valuations(
     """Calculate a non-cached end-of-day portfolio value series.
 
     Each point is derived from `positions_as_of`, then valued with the most
-    recent recorded close and FX rate on or before that date. Missing inputs
-    produce a gap rather than a made-up zero. Phase 3 S2 will refine the
-    permitted carry-forward window for market holidays.
+    recent recorded close and FX rate on or before that date. Historical price
+    gaps use an explicit assumption: average cost before the first known price,
+    or the last known price afterward. Missing FX still produces a gap.
     """
     start = date.fromisoformat(start_date)
     end = date.fromisoformat(end_date)
@@ -188,13 +192,44 @@ def daily_valuations(
         snapshot = portfolio_snapshot(connection, base_currency, point_date, platform)
         flow = _external_flow_on_date(connection, point_date, base_currency, platform)
         stale = [item for item in snapshot["positions"] if item["instrument"]["asset_class"] != "cash" and _trading_days_between(item["price"]["price_date"], point_date) > 5]
-        excluded = snapshot["excluded"] + [{**item, "reason": "Price older than 5 trading days"} for item in stale]
+        assumed = [{
+            **item,
+            "assumption": (
+                "Unchanged price carried forward"
+                if item["instrument"]["carry_forward_price"]
+                else "Last known price carried forward"
+            ),
+        } for item in stale]
+        assumed_value = Decimal("0")
+        excluded = []
+        for item in snapshot["excluded"]:
+            if item["reason"] != "No price":
+                excluded.append(item)
+                continue
+            instrument = item["instrument"]
+            fx, _fx_row = _fx_rate(
+                connection, instrument["native_currency"], base_currency.upper(), point_date
+            )
+            if fx is None:
+                excluded.append({
+                    **item,
+                    "reason": f"No {instrument['native_currency']}/{base_currency.upper()} FX rate",
+                })
+                continue
+            estimated_value = item["quantity"] * item["average_cost"] * fx
+            assumed_value += estimated_value
+            assumed.append({
+                **item,
+                "assumption": "Average cost used until first recorded price",
+                "assumed_value_base": estimated_value,
+            })
         values.append({
             "date": point_date,
-            "value_base": snapshot["total"] if not excluded else None,
+            "value_base": snapshot["total"] + assumed_value if not excluded else None,
             "net_external_flow_base": flow,
             "status": "ok" if not excluded else "gap",
             "excluded": excluded,
+            "assumed": assumed,
             "transfers": _external_transfers_on_date(connection, point_date, platform),
         })
         current += timedelta(days=1)

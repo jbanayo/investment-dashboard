@@ -87,6 +87,7 @@ def create_app(test_config: dict | None = None) -> "Flask":
     )
     from .formatting import FILTERS
     from .fetch import refresh_twelve_data_crypto_prices, twelve_data_usage
+    from .pse_edge import refresh_pse_edge_prices
 
     app.jinja_env.filters.update(FILTERS)
 
@@ -500,6 +501,22 @@ def create_app(test_config: dict | None = None) -> "Flask":
                 flash(message)
         except (RuntimeError, ValueError) as error:
             flash(str(error), "error")
+        destination = "dashboard" if request.form.get("return_to") == "dashboard" else "prices"
+        return redirect(url_for(destination))
+
+    @app.post("/prices/refresh/pse")
+    def refresh_pse_prices():
+        with database_connection() as connection:
+            result = refresh_pse_edge_prices(connection)
+        message = (
+            f"PSE Edge refreshed {result.instruments_updated} BDO instruments and saved "
+            f"{result.prices_written:,} daily prices using {result.requests_used} requests."
+        )
+        if result.failures:
+            message += " Failed: " + "; ".join(failure.message for failure in result.failures)
+            flash(message, "error")
+        else:
+            flash(message)
         destination = "dashboard" if request.form.get("return_to") == "dashboard" else "prices"
         return redirect(url_for(destination))
 

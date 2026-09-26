@@ -51,6 +51,7 @@ def reset_portfolio_data(connection: sqlite3.Connection) -> None:
     for table in (
         "price_revisions", "fx_rate_revisions", "ratings", "notes",
         "prices", "fx_rates", "reconciliation_records", "documents",
+        "instrument_source_mappings",
     ):
         connection.execute(f"DELETE FROM {table}")
     # Generated cash legs reference their parent transaction with RESTRICT.

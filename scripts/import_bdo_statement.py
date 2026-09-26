@@ -134,7 +134,7 @@ def instrument_id(connection: sqlite3.Connection, ticker: str) -> int:
     return connection.execute(
         """INSERT INTO instruments
            (name,ticker,asset_class,platform,native_currency,notes,price_source,source_symbol,coverage_status)
-           VALUES (?,?,'ph_equity','BDO Securities','PHP',?,'manual',?,'no_coverage')""",
+           VALUES (?,?,'ph_equity','BDO Securities','PHP',?,'pse_edge',?,'no_coverage')""",
         (NAMES.get(ticker, ticker), ticker, "Imported from BDO Securities statement ending 2026-06-17.", ticker),
     ).lastrowid
 
@@ -174,7 +174,7 @@ def main(pdf_path: Path) -> None:
         {x["ticker"] for x in trades} | {x["ticker"] for x in dividends}
         | {x[1] for x in CORPORATE_ACTIONS} | set(ENDING)
     )
-    # Market prices are fetched on demand through the app's Twelve Data adapter.
+    # PSE market prices are fetched on demand from PSE Edge by the application.
     histories = {ticker: {} for ticker in all_tickers}
     print("Fetching USD/PHP daily FX...")
     fx_history = fetch_chart("PHP=X")
