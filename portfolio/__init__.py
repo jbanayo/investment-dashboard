@@ -86,7 +86,10 @@ def create_app(test_config: dict | None = None) -> "Flask":
         unrealised_totals,
     )
     from .formatting import FILTERS
-    from .fetch import refresh_twelve_data_crypto_prices, twelve_data_usage
+    from .fetch import (
+        refresh_twelve_data_crypto_prices, refresh_twelve_data_ibkr_prices,
+        twelve_data_usage,
+    )
     from .pse_edge import refresh_pse_edge_prices
 
     app.jinja_env.filters.update(FILTERS)
@@ -504,6 +507,30 @@ def create_app(test_config: dict | None = None) -> "Flask":
         destination = "dashboard" if request.form.get("return_to") == "dashboard" else "prices"
         return redirect(url_for(destination))
 
+    @app.post("/prices/refresh/ibkr")
+    def refresh_ibkr_prices():
+        try:
+            with database_connection() as connection:
+                result = refresh_twelve_data_ibkr_prices(
+                    connection, app.config["TWELVE_DATA_API_KEY"]
+                )
+            message = (
+                f"Twelve Data refreshed {result.instruments_updated} IBKR instruments and saved "
+                f"{result.prices_written:,} daily prices using {result.requests_used} requests. "
+                f"{result.requests_remaining} requests remain today."
+            )
+            if result.instruments_pending:
+                message += f" {result.instruments_pending} instruments still need a later refresh."
+            if result.failures:
+                message += " Failed: " + "; ".join(f.message for f in result.failures)
+                flash(message, "error")
+            else:
+                flash(message)
+        except (RuntimeError, ValueError) as error:
+            flash(str(error), "error")
+        destination = "dashboard" if request.form.get("return_to") == "dashboard" else "prices"
+        return redirect(url_for(destination))
+
     @app.post("/prices/refresh/pse")
     def refresh_pse_prices():
         with database_connection() as connection:
@@ -514,6 +541,58 @@ def create_app(test_config: dict | None = None) -> "Flask":
         )
         if result.failures:
             message += " Failed: " + "; ".join(failure.message for failure in result.failures)
+            flash(message, "error")
+        else:
+            flash(message)
+        destination = "dashboard" if request.form.get("return_to") == "dashboard" else "prices"
+        return redirect(url_for(destination))
+
+    @app.post("/prices/refresh/all")
+    def refresh_all_prices():
+        summaries: list[str] = []
+        failures: list[str] = []
+        with database_connection() as connection:
+            try:
+                crypto = refresh_twelve_data_crypto_prices(
+                    connection, app.config["TWELVE_DATA_API_KEY"]
+                )
+                summaries.append(
+                    f"Crypto: {crypto.instruments_updated} instruments, "
+                    f"{crypto.prices_written:,} prices, {crypto.requests_used} requests"
+                )
+                if crypto.instruments_pending:
+                    summaries.append(f"Crypto pending: {crypto.instruments_pending}")
+                failures.extend(f"Crypto: {item.message}" for item in crypto.failures)
+            except (RuntimeError, ValueError) as error:
+                failures.append(f"Crypto: {error}")
+
+            try:
+                ibkr = refresh_twelve_data_ibkr_prices(
+                    connection, app.config["TWELVE_DATA_API_KEY"]
+                )
+                summaries.append(
+                    f"IBKR: {ibkr.instruments_updated} instruments, "
+                    f"{ibkr.prices_written:,} prices, {ibkr.requests_used} requests"
+                )
+                if ibkr.instruments_pending:
+                    summaries.append(f"IBKR pending: {ibkr.instruments_pending}")
+                failures.extend(f"IBKR: {item.message}" for item in ibkr.failures)
+            except (RuntimeError, ValueError) as error:
+                failures.append(f"IBKR: {error}")
+
+            try:
+                pse = refresh_pse_edge_prices(connection)
+                summaries.append(
+                    f"PSE: {pse.instruments_updated} instruments, "
+                    f"{pse.prices_written:,} prices, {pse.requests_used} requests"
+                )
+                failures.extend(f"PSE: {item.message}" for item in pse.failures)
+            except (RuntimeError, ValueError) as error:
+                failures.append(f"PSE: {error}")
+
+        message = "Refresh complete. " + "; ".join(summaries) + "."
+        if failures:
+            message += " Issues: " + "; ".join(failures)
             flash(message, "error")
         else:
             flash(message)

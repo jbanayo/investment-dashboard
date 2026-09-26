@@ -104,6 +104,20 @@ header.top h1 { font-size: 20px; font-weight: 650; margin: 0 0 4px; letter-spaci
 .btn.primary:hover { filter: brightness(1.08); }
 .btn.danger { color: var(--down); border-color: color-mix(in srgb, var(--down) 35%, transparent); }
 .btn:disabled { opacity: .55; cursor: default; }
+.action-tip { position: relative; display: inline-flex; }
+.action-tip-content {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
+  width: min(310px, 80vw); padding: 9px 11px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--ink); color: var(--surface); box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+  font-size: 12px; font-weight: 450; line-height: 1.45;
+  opacity: 0; visibility: hidden; transform: translateY(-3px);
+  pointer-events: none; transition: opacity .12s ease, transform .12s ease, visibility .12s ease;
+}
+.action-tip:hover .action-tip-content,
+.action-tip:focus-within .action-tip-content {
+  opacity: 1; visibility: visible; transform: translateY(0);
+}
 .icon-btn {
   border: 1px solid transparent; background: transparent; border-radius: 6px;
   width: 28px; height: 28px; display: inline-grid; place-items: center; color: var(--muted);

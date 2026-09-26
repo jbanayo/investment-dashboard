@@ -9,11 +9,12 @@ from portfolio.fetch import (
     PricePoint,
     TwelveDataAdapter,
     refresh_twelve_data_crypto_prices,
+    refresh_twelve_data_ibkr_prices,
     reserve_twelve_data_request,
     twelve_data_usage,
 )
 from portfolio.instruments import create_instrument
-from portfolio.transactions import record_buy
+from portfolio.transactions import record_buy, record_sell
 
 
 class FakeHttpClient:
@@ -126,6 +127,43 @@ class TwelveDataTests(unittest.TestCase):
             self.connection, "secret", end_date=date(2026, 9, 25), adapter=adapter
         )
         self.assertEqual(0, again.requests_used)
+
+    def test_ibkr_refresh_updates_open_position_and_stops_closed_position_at_sale(self):
+        apple = create_instrument(self.connection, {
+            "name": "Apple", "ticker": "AAPL", "asset_class": "us_equity",
+            "platform": "IBKR", "native_currency": "USD", "sector": "", "notes": "",
+            "price_source": "twelve_data", "source_symbol": "AAPL",
+        })
+        meta = create_instrument(self.connection, {
+            "name": "Meta", "ticker": "META", "asset_class": "us_equity",
+            "platform": "IBKR", "native_currency": "USD", "sector": "", "notes": "",
+            "price_source": "twelve_data", "source_symbol": "META",
+        })
+        record_buy(self.connection, {
+            "instrument_id": str(apple), "trade_date": "2026-09-20", "quantity": "1",
+            "unit_price": "100", "fees": "0", "currency": "USD", "note": "",
+            "zero_price_reason": "",
+        })
+        record_buy(self.connection, {
+            "instrument_id": str(meta), "trade_date": "2026-09-20", "quantity": "1",
+            "unit_price": "100", "fees": "0", "currency": "USD", "note": "",
+            "zero_price_reason": "",
+        })
+        record_sell(self.connection, {
+            "instrument_id": str(meta), "trade_date": "2026-09-22", "quantity": "1",
+            "unit_price": "110", "fees": "0", "currency": "USD", "note": "",
+            "zero_price_reason": "",
+        })
+        adapter = FakeAdapter([PricePoint(date(2026, 9, 22), 110, "USD")])
+
+        result = refresh_twelve_data_ibkr_prices(
+            self.connection, "secret", end_date=date(2026, 9, 25), adapter=adapter
+        )
+
+        self.assertEqual(2, result.requests_used)
+        calls = {symbol: (start, end) for symbol, start, end in adapter.calls}
+        self.assertEqual(date(2026, 9, 25), calls["AAPL"][1])
+        self.assertEqual(date(2026, 9, 22), calls["META"][1])
 
 
 if __name__ == "__main__":

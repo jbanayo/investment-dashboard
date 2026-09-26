@@ -81,7 +81,12 @@ def _latest_price(connection: sqlite3.Connection, instrument_id: int, as_of: str
         """
         SELECT * FROM prices WHERE instrument_id = ? AND price_date <= ?
         ORDER BY price_date DESC,
-          CASE source WHEN 'manual' THEN 3 WHEN 'BDO statement ending position' THEN 2 ELSE 1 END DESC,
+          CASE source
+            WHEN 'manual' THEN 3
+            WHEN 'BDO statement ending position' THEN 2
+            WHEN 'IBKR statement ending position' THEN 2
+            ELSE 1
+          END DESC,
           fetched_at DESC LIMIT 1
         """,
         (instrument_id, as_of),
@@ -93,7 +98,12 @@ def _previous_price(connection: sqlite3.Connection, instrument_id: int, current_
         """
         SELECT * FROM prices WHERE instrument_id = ? AND price_date < ?
         ORDER BY price_date DESC,
-          CASE source WHEN 'manual' THEN 3 WHEN 'BDO statement ending position' THEN 2 ELSE 1 END DESC,
+          CASE source
+            WHEN 'manual' THEN 3
+            WHEN 'BDO statement ending position' THEN 2
+            WHEN 'IBKR statement ending position' THEN 2
+            ELSE 1
+          END DESC,
           fetched_at DESC LIMIT 1
         """,
         (instrument_id, current_date),

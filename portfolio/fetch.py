@@ -275,6 +275,101 @@ def refresh_twelve_data_crypto_prices(
     return RefreshResult(updated, written, requests, remaining, tuple(failures), pending)
 
 
+def refresh_twelve_data_ibkr_prices(
+    connection: sqlite3.Connection,
+    api_key: str,
+    *,
+    end_date: date | None = None,
+    adapter: PriceAdapter | None = None,
+) -> RefreshResult:
+    """Fetch missing IBKR US-equity/ETF closes within each holding's active range."""
+    if not api_key.strip():
+        raise ValueError("Twelve Data API key is not configured.")
+    connection.commit()
+    if end_date is None:
+        today = date.today()
+        previous_close_offset = 3 if today.weekday() == 0 else 2 if today.weekday() == 6 else 1
+        end_date = today - timedelta(days=previous_close_offset)
+    adapter = adapter or TwelveDataAdapter(api_key, currency="USD")
+    instruments = connection.execute(
+        """SELECT i.*, MIN(t.trade_date) AS first_trade, MAX(t.trade_date) AS last_trade,
+                  SUM(CASE
+                    WHEN t.type IN ('buy','reward') THEN COALESCE(t.quantity,0)
+                    WHEN t.type = 'sell' THEN -COALESCE(t.quantity,0)
+                    WHEN t.type = 'transfer' THEN COALESCE(t.quantity,0)
+                    ELSE 0
+                  END) AS current_quantity
+           FROM instruments i
+           JOIN transactions t ON t.instrument_id = i.id
+             AND t.parent_transaction_id IS NULL
+           WHERE i.platform = 'IBKR' AND i.price_source = ?
+             AND i.source_symbol IS NOT NULL AND i.source_symbol != ''
+             AND i.asset_class IN ('us_equity','etf')
+           GROUP BY i.id
+           ORDER BY i.ticker""",
+        (TWELVE_DATA_SOURCE,),
+    ).fetchall()
+    updated = written = requests = completed = 0
+    failures: list[FetchFailure] = []
+    for instrument in instruments:
+        instrument_end = end_date
+        is_closed = abs(float(instrument["current_quantity"] or 0)) < 1e-12
+        if is_closed:
+            instrument_end = min(instrument_end, date.fromisoformat(instrument["last_trade"]))
+            latest_known = connection.execute(
+                "SELECT MAX(price_date) AS price_date FROM prices WHERE instrument_id = ?",
+                (instrument["id"],),
+            ).fetchone()["price_date"]
+            if latest_known and date.fromisoformat(latest_known) >= instrument_end:
+                completed += 1
+                continue
+        latest = connection.execute(
+            """SELECT MAX(price_date) AS price_date FROM prices
+               WHERE instrument_id = ? AND source = 'Twelve Data daily close'""",
+            (instrument["id"],),
+        ).fetchone()["price_date"]
+        start_date = (
+            date.fromisoformat(latest) + timedelta(days=1)
+            if latest else date.fromisoformat(instrument["first_trade"])
+        )
+        if start_date > instrument_end:
+            completed += 1
+            continue
+        try:
+            reserve_twelve_data_request(connection)
+        except RuntimeError as error:
+            failures.append(FetchFailure(TWELVE_DATA_SOURCE, str(error)))
+            break
+        requests += 1
+        result = adapter.fetch_prices(
+            instrument["source_symbol"], start_date, instrument_end
+        )
+        if isinstance(result, FetchFailure):
+            failures.append(FetchFailure(
+                result.source, f"{instrument['ticker']}: {result.message}", result.stop_refresh
+            ))
+            if result.stop_refresh:
+                break
+            continue
+        for point in result:
+            connection.execute(
+                """INSERT INTO prices
+                   (instrument_id, price_date, price, currency, source, fetched_at)
+                   VALUES (?, ?, ?, ?, 'Twelve Data daily close', CURRENT_TIMESTAMP)
+                   ON CONFLICT(instrument_id, price_date, source)
+                   DO UPDATE SET price = excluded.price, currency = excluded.currency,
+                                 fetched_at = CURRENT_TIMESTAMP""",
+                (instrument["id"], point.price_date.isoformat(), point.close, point.currency),
+            )
+            written += 1
+        connection.commit()
+        updated += 1
+        completed += 1
+    _used, remaining = twelve_data_usage(connection)
+    pending = max(0, len(instruments) - completed)
+    return RefreshResult(updated, written, requests, remaining, tuple(failures), pending)
+
+
 def refreshable_instruments(connection):
     """Return only instruments that have a configured live source and symbol."""
     return connection.execute(

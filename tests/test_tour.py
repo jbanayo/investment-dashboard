@@ -34,5 +34,18 @@ class TourTests(unittest.TestCase):
             page = self.client.get(path).get_data(as_text=True)
             self.assertIn(f'data-tour="{target}"', page, f"{path} is missing the {target} anchor")
 
+    def test_unified_price_refresh_explains_its_data_sources(self):
+        for path in ("/dashboard", "/prices"):
+            page = self.client.get(path).get_data(as_text=True)
+            self.assertIn("Refresh prices", page)
+            self.assertIn("Crypto and IBKR use Twelve Data. PSE uses PSE Edge.", page)
+            self.assertNotIn("Refresh crypto prices", page)
+            self.assertNotIn("Refresh PSE prices", page)
+            self.assertNotIn("Refresh IBKR prices", page)
+            self.assertIn('role="tooltip"', page)
+
+        response = self.client.post("/prices/refresh/all")
+        self.assertEqual(302, response.status_code)
+
 if __name__ == "__main__":
     unittest.main()

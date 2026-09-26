@@ -95,3 +95,26 @@ class PositionTests(unittest.TestCase):
         self.assertFalse(any(
             item["instrument"]["id"] == self.pse for item in snapshot["positions"]
         ))
+
+    def test_ibkr_statement_close_overrides_same_day_yahoo_close(self):
+        record_buy(self.connection, self.trade("2026-09-20", "1", "100"))
+        self.connection.execute(
+            """INSERT INTO prices
+               (instrument_id,price_date,price,currency,source)
+               VALUES (?,'2026-09-21',115,'USD','Yahoo US daily close')""",
+            (self.apple,),
+        )
+        self.connection.execute(
+            """INSERT INTO prices
+               (instrument_id,price_date,price,currency,source)
+               VALUES (?,'2026-09-21',120,'USD','IBKR statement ending position')""",
+            (self.apple,),
+        )
+
+        snapshot = portfolio_snapshot(self.connection, "USD", "2026-09-21", platform="IBKR")
+        apple = next(
+            item for item in snapshot["positions"]
+            if item["instrument"]["id"] == self.apple
+        )
+        self.assertEqual(Decimal("120.0"), apple["market_value_base"])
+        self.assertEqual("IBKR statement ending position", apple["price"]["source"])
