@@ -91,6 +91,11 @@ def create_app(test_config: dict | None = None) -> "Flask":
         twelve_data_usage,
     )
     from .pse_edge import refresh_pse_edge_prices
+    from .research import (
+        CONFIDENCE_LEVELS, STANCES, STATUSES, TRIGGER_TYPES, ResearchError,
+        create_manual_research, list_research, research_counts,
+        monitored_research, transition_research_item,
+    )
 
     app.jinja_env.filters.update(FILTERS)
 
@@ -99,7 +104,13 @@ def create_app(test_config: dict | None = None) -> "Flask":
         with database_connection() as connection:
             preferences = portfolio_preferences(connection)
             tour_seen = get_setting(connection, "tour_seen", "0") == "1"
-        return {"app_preferences": preferences, "tour_autostart": not tour_seen}
+            draft_count = connection.execute(
+                "SELECT COUNT(*) FROM research_items WHERE status = 'draft'"
+            ).fetchone()[0]
+        return {
+            "app_preferences": preferences, "tour_autostart": not tour_seen,
+            "research_draft_count": draft_count,
+        }
 
     @app.post("/tour/seen")
     def mark_tour_seen():
@@ -152,6 +163,7 @@ def create_app(test_config: dict | None = None) -> "Flask":
             last_refresh = last_price_refresh(connection, selected_platform)
             recent = recent_transactions(connection, platform=selected_platform)
             notes = recent_notes(connection, platform=selected_platform)
+            monitoring = monitored_research(connection, selected_platform)
         stale_count = sum(1 for item in snapshot["positions"] if item["stale"])
         return render_template(
             "dashboard.html", snapshot=snapshot, grouping=grouping, groups=groups, chart=chart,
@@ -160,6 +172,7 @@ def create_app(test_config: dict | None = None) -> "Flask":
             unrealised=unrealised_totals(snapshot), dividends=dividends, fx=fx,
             last_refresh=last_refresh, recent=recent, notes=notes, stale_count=stale_count,
             platforms=platforms, selected_platform=selected_platform,
+            monitoring=monitoring,
         )
 
     @app.route("/settings", methods=["GET", "POST"])
@@ -642,5 +655,62 @@ def create_app(test_config: dict | None = None) -> "Flask":
             except TransactionError as error:
                 flash(str(error), "error")
         return render_template("fx_rate_form.html")
+
+    @app.get("/research")
+    def research():
+        status = request.args.get("status", "draft")
+        if status not in STATUSES:
+            status = "draft"
+        selected_platform = request.args.get("platform", "").strip() or None
+        with database_connection() as connection:
+            counts = research_counts(connection)
+            platforms = [row["platform"] for row in connection.execute(
+                "SELECT DISTINCT platform FROM instruments WHERE asset_class != 'cash' ORDER BY platform"
+            )]
+            if selected_platform not in platforms:
+                selected_platform = None
+            items = list_research(connection, status, selected_platform)
+        return render_template(
+            "research.html", items=items, counts=counts, status=status,
+            statuses=STATUSES, platforms=platforms, selected_platform=selected_platform,
+        )
+
+    @app.route("/research/new", methods=["GET", "POST"])
+    def new_research():
+        if request.method == "POST":
+            try:
+                with database_connection() as connection:
+                    item_id = create_manual_research(connection, request.form)
+                    status = connection.execute(
+                        "SELECT status FROM research_items WHERE id = ?", (item_id,)
+                    ).fetchone()["status"]
+                flash("Research saved.")
+                return redirect(url_for("research", status=status))
+            except ResearchError as error:
+                flash(str(error), "error")
+        with database_connection() as connection:
+            instruments = connection.execute(
+                "SELECT * FROM instruments WHERE asset_class != 'cash' ORDER BY platform, name"
+            ).fetchall()
+        return render_template(
+            "research_form.html", instruments=instruments, stances=STANCES,
+            trigger_types=TRIGGER_TYPES, confidence_levels=CONFIDENCE_LEVELS,
+        )
+
+    @app.post("/research/<int:item_id>/status")
+    def research_status(item_id: int):
+        try:
+            new_status = request.form.get("status", "")
+            with database_connection() as connection:
+                transition_research_item(connection, item_id, new_status)
+            flash({
+                "monitoring": "Research added to monitoring.",
+                "saved": "Research saved to the library.",
+                "archived": "Research archived.",
+                "draft": "Research restored to drafts.",
+            }[new_status])
+        except (ResearchError, KeyError) as error:
+            flash(str(error) or "Could not update research.", "error")
+        return redirect(url_for("research", status=request.form.get("return_status", "draft")))
 
     return app

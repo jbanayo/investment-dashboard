@@ -162,7 +162,7 @@
     <table id="holdings">
       <thead><tr>
         <th>Instrument</th><th>Qty</th><th>Avg cost</th><th>Last price</th><th>Value (native)</th>
-        <th>Value ({{ base }})</th><th>Unrealised G/L</th><th>Alloc</th><th class="rating">Analyst rating · target</th>
+        <th>Value ({{ base }})</th><th>Unrealised G/L</th><th>Alloc</th><th>Research</th><th class="rating">Analyst rating · target</th>
       </tr></thead>
       <tbody>
       {% for g in groups %}
@@ -171,7 +171,7 @@
           <td></td><td></td><td></td><td></td>
           <td class="num">{{ g.value|money(base) }}</td>
           <td class="num {{ g.gain_loss|direction }}">{{ g.gain_loss|signed(base) }}</td>
-          <td class="num">{{ g.allocation|share }}</td><td></td>
+          <td class="num">{{ g.allocation|share }}</td><td></td><td></td>
         </tr>
         {% for item in g.holdings %}{% set i = item.instrument %}
         <tr class="{{ 'is-stale' if item.stale }}">
@@ -186,6 +186,7 @@
           <td class="num">{{ item.market_value_base|money(base) }}{% if item.fx_row %}<div class="inst-sub">at {{ '%.2f'|format(item.fx) }}</div>{% endif %}</td>
           <td class="num">{% if item.is_cash %}<span class="muted">—</span>{% else %}<div class="{{ item.unrealised_gain_loss|direction }}">{{ item.unrealised_gain_loss|signed(base) }}</div>{% if item.gain_loss_percent is not none %}<div class="small {{ item.gain_loss_percent|direction }}">{{ item.gain_loss_percent|pct(1) }}</div>{% endif %}{% endif %}</td>
           <td class="num">{{ item.allocation|share }}</td>
+          <td>{% set thesis = monitoring|selectattr('instrument_id', 'equalto', i.id)|first %}{% if thesis %}<a class="research-cell" href="#research-monitoring"><span class="stance {{ thesis.stance }}">{{ thesis.stance|title }}</span>{% if thesis.trigger_type != 'none' %}<span class="inst-sub">{{ 'Event trigger' if thesis.trigger_type == 'event' else thesis.trigger_price|unit_price(thesis.trigger_currency) }}</span>{% endif %}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
           <td class="rating">{% if item.is_cash %}<span class="muted">—</span>{% elif item.rating %}
             <div><span class="r">{{ item.rating.rating }}</span>{% if item.rating.target_price %} · <span class="num">{{ item.rating.target_price|unit_price(item.rating.target_currency) }}</span>{% if item.implied_upside is not none %} <span class="num small {{ item.implied_upside|direction }}">({{ item.implied_upside|pct(1) }} implied)</span>{% endif %}{% endif %}</div>
             <div class="inst-sub">{{ item.rating.issuer }}{% if item.rating.analyst_count %} · {{ item.rating.analyst_count }} analysts{% endif %} · {{ item.rating.issued_date|short_date }}</div>
@@ -193,7 +194,7 @@
         </tr>
         {% endfor %}
       {% else %}
-        <tr><td colspan="9" class="empty">No valued holdings yet. <a href="{{ url_for('new_instrument') }}">Add an asset</a>, record a buy, then enter its price.</td></tr>
+        <tr><td colspan="10" class="empty">No valued holdings yet. <a href="{{ url_for('new_instrument') }}">Add an asset</a>, record a buy, then enter its price.</td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -203,6 +204,18 @@
     <ul>{% for item in snapshot.excluded %}<li>{{ item.instrument.name }} · {{ item.reason }}. <a href="{{ url_for('prices') }}">Enter it</a>.</li>{% endfor %}</ul>
   </div>
   {% endif %}
+</section>
+
+{# ---------- Research monitoring ---------- #}
+<section class="card dashboard-research" id="research-monitoring">
+  <div class="card-head"><div><h2>Research monitoring</h2><div class="sub">Only theses you chose to monitor appear here</div></div><a class="btn" href="{{ url_for('research', status='monitoring') }}">Open research</a></div>
+  {% if monitoring %}<div class="dashboard-research-grid">{% for item in monitoring %}
+    <article class="dashboard-research-item{% if item.trigger_met %} trigger-met{% endif %}">
+      <div class="research-title"><strong>{{ item.ticker or item.instrument_name }}</strong><span class="stance {{ item.stance }}">{{ item.stance|title }}</span>{% if item.trigger_met %}<span class="badge stale">Trigger reached</span>{% endif %}</div>
+      <p>{{ item.summary }}</p>
+      <div class="inst-sub">{% if item.trigger_type == 'event' %}{{ item.event_trigger }}{% elif item.trigger_type != 'none' %}{{ item.trigger_type|replace('_', ' ')|title }} {{ item.trigger_price|unit_price(item.trigger_currency) }}{% else %}No price trigger{% endif %}{% if item.current_price is not none %} · Current {{ item.current_price|unit_price(item.native_currency) }}{% endif %}</div>
+    </article>
+  {% endfor %}</div>{% else %}<div class="empty">No monitored research for this view. <a href="{{ url_for('research') }}">Review research</a> or add your own thesis.</div>{% endif %}
 </section>
 
 {# ---------- Transactions + notes ---------- #}

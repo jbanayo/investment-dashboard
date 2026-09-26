@@ -16,9 +16,10 @@
       ('transactions', 'Transactions', ['transactions', 'new_transaction', 'edit_transaction', 'new_fee', 'new_transfer']),
       ('prices', 'Prices', ['prices', 'new_price', 'bulk_prices', 'new_fx_rate']),
       ('positions', 'Positions', ['positions', 'position_detail']),
+      ('research', 'Research', ['research', 'new_research']),
       ('reconciliation', 'Reconcile', ['reconciliation']),
     ] %}
-    <a href="{{ url_for(name) }}" {% if endpoint in prefixes %}aria-current="page"{% endif %}>{{ label }}</a>
+    <a href="{{ url_for(name) }}" {% if endpoint in prefixes %}aria-current="page"{% endif %}>{{ label }}{% if name == 'research' and research_draft_count %}<span class="nav-count">{{ research_draft_count }}</span>{% endif %}</a>
     {% endfor %}
     <span class="spacer"></span>
     <button class="btn" type="button" data-tour-start data-tour="tour-button" title="Show how the app works">

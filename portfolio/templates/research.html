@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Research · {{ app_preferences.display_name }}{% endblock %}
+{% block content %}
+<div class="head research-head">
+  <div><h1>Research</h1><p class="sub">Review investment theses before they influence what you monitor.</p></div>
+  <a class="btn primary" href="{{ url_for('new_research') }}">+ Add manual research</a>
+</div>
+
+<div class="research-stats">
+  {% for key, label in [('draft','To review'), ('monitoring','Monitoring'), ('saved','Saved'), ('archived','Archived')] %}
+  <a class="card research-stat{% if status == key %} active{% endif %}" href="{{ url_for('research', status=key, platform=selected_platform or '') }}">
+    <strong class="num">{{ counts[key] }}</strong><span>{{ label }}</span>
+  </a>
+  {% endfor %}
+</div>
+
+<section class="card research-run-panel">
+  <div><strong>AI research</strong><p class="sub">The review workflow is ready. AI generation and source retrieval will be connected in the next development slice.</p></div>
+  <button class="btn" type="button" disabled title="AI provider is not configured yet">Run AI research</button>
+</section>
+
+<div class="research-toolbar">
+  <div class="research-tabs" role="navigation" aria-label="Research status">
+    {% for key, label in [('draft','To review'), ('monitoring','Monitoring'), ('saved','Saved'), ('archived','Archived')] %}
+    <a href="{{ url_for('research', status=key, platform=selected_platform or '') }}" {% if status == key %}aria-current="page"{% endif %}>{{ label }} <span>{{ counts[key] }}</span></a>
+    {% endfor %}
+  </div>
+  <form method="get"><input type="hidden" name="status" value="{{ status }}"><label class="sr-only" for="research-platform">Platform</label><select class="input compact" id="research-platform" name="platform" onchange="this.form.submit()"><option value="">All platforms</option>{% for platform in platforms %}<option value="{{ platform }}" {% if selected_platform == platform %}selected{% endif %}>{{ platform }}</option>{% endfor %}</select></form>
+</div>
+
+{% if items %}<div class="research-list">
+  {% for item in items %}
+  <article class="card research-card">
+    <div class="research-card-top">
+      <div><div class="research-title"><h2>{{ item.instrument_name }}</h2>{% if item.ticker %}<span>{{ item.ticker }}</span>{% endif %}<span class="stance {{ item.stance }}">{{ item.stance|title }}</span></div><p class="sub">{{ item.platform }} · {{ item.origin|title }} · {{ item.research_date }}</p></div>
+      {% if item.confidence %}<span class="confidence">{{ item.confidence|title }} confidence</span>{% endif %}
+    </div>
+    <p class="research-summary">{{ item.summary }}</p>
+    {% if item.trigger_type != 'none' %}<div class="research-trigger"><strong>Trigger</strong> {% if item.trigger_type == 'event' %}{{ item.event_trigger }}{% else %}{{ item.trigger_type|replace('_', ' ')|title }} {{ item.trigger_price|money(item.trigger_currency, 2) }}{% endif %}{% if item.time_horizon %}<span>· {{ item.time_horizon }}</span>{% endif %}</div>{% endif %}
+    {% if item.supporting_points or item.risks %}<div class="research-columns">
+      {% if item.supporting_points %}<div><strong>Why</strong><ul>{% for point in item.supporting_points %}<li>{{ point }}</li>{% endfor %}</ul></div>{% endif %}
+      {% if item.risks %}<div><strong>Risks</strong><ul>{% for risk in item.risks %}<li>{{ risk }}</li>{% endfor %}</ul></div>{% endif %}
+    </div>{% endif %}
+    {% if item.sources %}<div class="research-sources">Sources: {% for source in item.sources %}<a href="{{ source.url }}" target="_blank" rel="noopener noreferrer">{{ source.title }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}
+    <div class="actions research-actions">
+      {% if status != 'monitoring' %}<form method="post" action="{{ url_for('research_status', item_id=item.id) }}"><input type="hidden" name="status" value="monitoring"><input type="hidden" name="return_status" value="{{ status }}"><button class="btn primary" type="submit">Keep monitoring</button></form>{% endif %}
+      {% if status != 'saved' %}<form method="post" action="{{ url_for('research_status', item_id=item.id) }}"><input type="hidden" name="status" value="saved"><input type="hidden" name="return_status" value="{{ status }}"><button class="btn" type="submit">Save research</button></form>{% endif %}
+      {% if status != 'archived' %}<form method="post" action="{{ url_for('research_status', item_id=item.id) }}"><input type="hidden" name="status" value="archived"><input type="hidden" name="return_status" value="{{ status }}"><button class="btn" type="submit">Archive</button></form>{% else %}<form method="post" action="{{ url_for('research_status', item_id=item.id) }}"><input type="hidden" name="status" value="draft"><input type="hidden" name="return_status" value="archived"><button class="btn" type="submit">Restore to review</button></form>{% endif %}
+    </div>
+  </article>
+  {% endfor %}
+</div>{% else %}
+<div class="card empty research-empty"><h2>No {{ status|replace('_', ' ') }} research</h2><p>Create a manual thesis now, or return when AI research generation is connected.</p><a class="btn primary" href="{{ url_for('new_research') }}">Add research</a></div>
+{% endif %}
+{% endblock %}

@@ -49,6 +49,7 @@ def save_portfolio_preferences(
 def reset_portfolio_data(connection: sqlite3.Connection) -> None:
     """Clear user-entered portfolio data while retaining preferences and schema."""
     for table in (
+        "watchlist", "research_events", "research_sources", "research_items", "research_runs",
         "price_revisions", "fx_rate_revisions", "ratings", "notes",
         "prices", "fx_rates", "reconciliation_records", "documents",
         "instrument_source_mappings",
