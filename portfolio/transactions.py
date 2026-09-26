@@ -58,7 +58,7 @@ def position_as_of(
         """
         SELECT type, quantity, unit_price, fees FROM transactions
         WHERE instrument_id = ? AND parent_transaction_id IS NULL
-          AND type IN ('buy', 'sell', 'reward') AND trade_date <= ?
+          AND type IN ('buy', 'sell', 'reward', 'transfer') AND trade_date <= ?
         ORDER BY trade_date, id
         """,
         (instrument_id, as_of),
@@ -66,7 +66,16 @@ def position_as_of(
     quantity, average_cost = Decimal("0"), Decimal("0")
     for row in rows:
         row_quantity = Decimal(str(row["quantity"] or 0))
-        if row["type"] in ("buy", "reward"):
+        if row["type"] == "transfer":
+            if row_quantity > 0:
+                total_cost = (quantity * average_cost) + row_quantity * Decimal(str(row["unit_price"] or 0))
+                quantity += row_quantity
+                average_cost = total_cost / quantity if quantity else Decimal("0")
+            else:
+                quantity += row_quantity
+                if quantity == 0:
+                    average_cost = Decimal("0")
+        elif row["type"] in ("buy", "reward"):
             total_cost = (quantity * average_cost) + (
                 row_quantity * Decimal(str(row["unit_price"] or 0))
             ) + Decimal(str(row["fees"] or 0))

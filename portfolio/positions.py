@@ -29,14 +29,24 @@ def positions_as_of(
                 """
                 SELECT type, quantity, unit_price, fees FROM transactions
                 WHERE instrument_id = ? AND parent_transaction_id IS NULL
-                  AND type IN ('buy', 'sell', 'reward') AND trade_date <= ?
+                  AND type IN ('buy', 'sell', 'reward', 'transfer') AND trade_date <= ?
                 ORDER BY trade_date, id
                 """,
                 (instrument["id"], as_of),
             ).fetchall()
             for transaction in transactions:
                 transaction_quantity = _decimal(transaction["quantity"])
-                if transaction["type"] in ("buy", "reward"):
+                if transaction["type"] == "transfer":
+                    signed_quantity = transaction_quantity
+                    if signed_quantity > 0:
+                        cost = quantity * average_cost + signed_quantity * _decimal(transaction["unit_price"])
+                        quantity += signed_quantity
+                        average_cost = cost / quantity if quantity else Decimal("0")
+                    else:
+                        quantity += signed_quantity
+                        if quantity == 0:
+                            average_cost = Decimal("0")
+                elif transaction["type"] in ("buy", "reward"):
                     cost = quantity * average_cost + transaction_quantity * _decimal(transaction["unit_price"]) + _decimal(transaction["fees"])
                     quantity += transaction_quantity
                     average_cost = cost / quantity if quantity else Decimal("0")

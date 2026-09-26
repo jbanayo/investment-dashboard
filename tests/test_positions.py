@@ -50,3 +50,19 @@ class PositionTests(unittest.TestCase):
         self.assertEqual(Decimal("60000.0"), apple["market_value_base"])
         self.assertEqual(Decimal("5000.0"), apple["daily_change"])
         self.assertTrue(any(item["instrument"]["id"] == self.pse and item["reason"] == "No price" for item in snapshot["excluded"]))
+
+    def test_non_cash_transfer_changes_asset_quantity(self):
+        self.connection.execute(
+            """INSERT INTO transactions
+               (instrument_id,type,trade_date,quantity,unit_price,currency,source_type,
+                note,platform,is_external_transfer)
+               VALUES (?,'transfer','2026-09-20',2.5,100,'USD','import',
+                       'External asset deposit','IBKR',1)""",
+            (self.apple,),
+        )
+        position = next(
+            item for item in positions_as_of(self.connection, "2026-09-20")
+            if item["instrument"]["id"] == self.apple
+        )
+        self.assertEqual(Decimal("2.5"), position["quantity"])
+        self.assertEqual(Decimal("100"), position["average_cost"])
