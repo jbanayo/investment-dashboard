@@ -5,9 +5,9 @@ exchanges. It keeps transactions, positions, prices, FX rates, dividends, and
 notes in a local SQLite database and builds a unified portfolio dashboard from
 that ledger.
 
-The app currently supports BDO Securities Philippine equities and Kraken crypto
-workflows, while the instrument and transaction screens can also be used for
-other platforms.
+The app currently supports BDO Securities Philippine equities, Kraken crypto,
+and IBKR US equities and ETFs. The instrument and transaction screens can also
+be used for other platforms.
 
 ## What the app does
 
@@ -23,6 +23,9 @@ other platforms.
 - Fetches Kraken crypto daily closes from Twelve Data.
 - Fetches Philippine-equity daily closes for instruments in the BDO ledger from
   the chart endpoint used by PSE Edge.
+- Imports IBKR Activity Statement trades, commissions, dividends, tax,
+  transfers, cash, accruals, and statement prices, with Yahoo daily closes for
+  the imported US securities.
 - Stores manual prices and USD/PHP rates when an automated source is unavailable.
 - Tracks dividend income, analyst ratings, research notes, and reconciliation
   records.
@@ -82,7 +85,7 @@ automatically when the application starts.
 
 ## Configure price data
 
-### Twelve Data for crypto
+### Twelve Data for crypto and IBKR
 
 Create a Twelve Data API key and either set it for the current shell:
 
@@ -101,15 +104,17 @@ The `instance/` directory is ignored by Git. The app enforces local Twelve Data
 limits of 8 requests per UTC minute and 800 requests per UTC day. Failed and
 timed-out calls also count toward those limits.
 
-Use **Refresh crypto prices** on the Dashboard or Prices page. Only configured
-crypto instruments are requested.
+Use **Refresh prices** on the Dashboard or Prices page. Crypto and IBKR share
+the same Twelve Data request limits. IBKR refresh requests only US equities and
+ETFs in the IBKR ledger; open positions update through the current date and
+closed positions stop at their sale date.
 
 ### PSE Edge for Philippine equities
 
-Use **Refresh PSE prices** on the Dashboard or Prices page. The app requests only
-Philippine equities that appear in the BDO Securities ledger. Open positions
-refresh through the current date; closed positions stop at their final
-transaction because later prices cannot affect the portfolio.
+The same **Refresh prices** action requests only Philippine equities that appear
+in the BDO Securities ledger. Open positions refresh through the current date;
+closed positions stop at their final transaction because later prices cannot
+affect the portfolio.
 
 PSE company and security identifiers are cached locally, and requests are paced
 at one per second. A manual price or statement ending price takes precedence
@@ -160,6 +165,9 @@ python3 -m unittest discover -s tests -v
 ## Project documents
 
 - [Product requirements](docs/investment-tracker-prd.md)
+- [Version 1.1.0 AI research PRD](docs/v1.1.0-ai-research-prd.md)
+- [Version 1.1.0 research prototype](docs/v1.1.0-research-prototype.html)
+- [Version 1.1.0 dashboard with research prototype](docs/v1.1.0-dashboard-research-prototype.html)
 - [Dashboard prototype](docs/dashboard-prototype.html)
 - [Style guide](docs/style-guide.md)
 - [Reconciliation design](docs/reconciliation.md)
