@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass
 from datetime import date
 from urllib.parse import urlparse
 
@@ -13,17 +12,11 @@ STANCES = ("buy", "hold", "reduce", "sell", "watch", "avoid")
 STATUSES = ("draft", "monitoring", "saved", "archived")
 TRIGGER_TYPES = ("none", "at_or_below", "at_or_above", "event")
 CONFIDENCE_LEVELS = ("low", "medium", "high")
+SOURCE_TYPES = ("filing", "company", "exchange", "news", "research", "other")
 
 
 class ResearchError(ValueError):
     pass
-
-
-@dataclass(frozen=True)
-class ResearchRunResult:
-    run_id: int
-    created: int
-    failures: tuple[str, ...]
 
 
 def _optional_number(value: str | None, label: str) -> float | None:
@@ -135,6 +128,116 @@ def create_manual_research(connection: sqlite3.Connection, values) -> int:
     return item_id
 
 
+def import_ai_research(connection: sqlite3.Connection, values) -> int:
+    """Save a user-reviewed, externally generated research result as a draft."""
+    try:
+        instrument_id = int(values.get("instrument_id", ""))
+    except (TypeError, ValueError) as error:
+        raise ResearchError("Choose an investment.") from error
+    instrument = connection.execute(
+        "SELECT * FROM instruments WHERE id = ? AND asset_class != 'cash'", (instrument_id,)
+    ).fetchone()
+    if not instrument:
+        raise ResearchError("Choose an investment that exists in the portfolio.")
+    try:
+        payload = json.loads(values.get("research_json", ""))
+    except (TypeError, json.JSONDecodeError) as error:
+        raise ResearchError("Paste valid research JSON from your AI agent.") from error
+    required = {
+        "stance", "summary", "supporting_points", "risks", "confidence",
+        "confidence_reason", "time_horizon", "trigger_type", "sources",
+    }
+    if not isinstance(payload, dict) or not required.issubset(payload):
+        raise ResearchError("The research JSON is missing required fields.")
+    if payload["stance"] not in STANCES or payload["trigger_type"] not in TRIGGER_TYPES:
+        raise ResearchError("The research JSON has an unsupported stance or trigger.")
+    if payload["confidence"] not in CONFIDENCE_LEVELS:
+        raise ResearchError("The research JSON has an unsupported confidence level.")
+    if not isinstance(payload["summary"], str) or not payload["summary"].strip():
+        raise ResearchError("The research JSON needs a thesis summary.")
+    if not all(isinstance(payload[key], list) for key in ("supporting_points", "risks", "sources")):
+        raise ResearchError("Supporting points, risks, and sources must be lists.")
+    trigger_price = payload.get("trigger_price")
+    if trigger_price is not None:
+        try:
+            trigger_price = float(trigger_price)
+        except (TypeError, ValueError) as error:
+            raise ResearchError("The trigger price must be a number.") from error
+        if trigger_price <= 0:
+            raise ResearchError("The trigger price must be greater than zero.")
+    trigger_currency = payload.get("trigger_currency")
+    if payload["trigger_type"] in ("at_or_below", "at_or_above"):
+        if trigger_price is None or not isinstance(trigger_currency, str) or len(trigger_currency) != 3:
+            raise ResearchError("A numeric trigger needs a positive price and three-letter currency.")
+    if payload["trigger_type"] == "event" and not str(payload.get("event_trigger") or "").strip():
+        raise ResearchError("An event trigger needs a description.")
+    sources = []
+    seen_urls: set[str] = set()
+    for source in payload["sources"]:
+        if not isinstance(source, dict):
+            raise ResearchError("Each source must be an object.")
+        url = str(source.get("url") or "").strip()
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ResearchError("Each source needs a valid http or https URL.")
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        source_type = source.get("source_type", "other")
+        if source_type not in SOURCE_TYPES:
+            raise ResearchError("Each source needs a valid source type.")
+        sources.append({
+            "title": str(source.get("title") or url).strip(),
+            "publisher": str(source.get("publisher") or "").strip() or None,
+            "url": url,
+            "published_at": str(source.get("published_at") or "").strip() or None,
+            "source_type": source_type,
+        })
+
+    latest = connection.execute(
+        "SELECT price, price_date FROM prices WHERE instrument_id = ? ORDER BY price_date DESC, id DESC LIMIT 1",
+        (instrument_id,),
+    ).fetchone()
+    research_date = _valid_date(values.get("research_date", ""), "Research date")
+    cursor = connection.execute(
+        """INSERT INTO research_items (
+            instrument_id, origin, status, stance, research_date, market_price,
+            market_price_date, trigger_type, trigger_price, trigger_currency,
+            event_trigger, time_horizon, summary, supporting_points_json, risks_json,
+            confidence, confidence_reason, source_target, source_target_currency,
+            source_target_issuer, original_payload_json
+        ) VALUES (?, 'ai', 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            instrument_id, payload["stance"], research_date,
+            latest["price"] if latest else None, latest["price_date"] if latest else None,
+            payload["trigger_type"], trigger_price,
+            trigger_currency.upper() if isinstance(trigger_currency, str) else None,
+            str(payload.get("event_trigger") or "").strip() or None,
+            str(payload["time_horizon"]).strip(), payload["summary"].strip(),
+            json.dumps(payload["supporting_points"]), json.dumps(payload["risks"]),
+            payload["confidence"], str(payload["confidence_reason"]).strip(),
+            payload.get("source_target"), payload.get("source_target_currency"),
+            payload.get("source_target_issuer"), json.dumps(payload),
+        ),
+    )
+    item_id = cursor.lastrowid
+    for source in sources:
+        connection.execute(
+            """INSERT INTO research_sources
+               (research_item_id, title, publisher, url, published_at, source_type)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (item_id, source["title"], source["publisher"], source["url"], source["published_at"], source["source_type"]),
+        )
+    agent_name = (values.get("agent_name") or "External AI agent").strip()[:80]
+    connection.execute(
+        """INSERT INTO research_events
+           (research_item_id, event_type, to_status, detail)
+           VALUES (?, 'generated', 'draft', ?)""",
+        (item_id, f"Imported from {agent_name}"),
+    )
+    return item_id
+
+
 def transition_research_item(connection: sqlite3.Connection, item_id: int, new_status: str) -> None:
     if new_status not in STATUSES:
         raise ResearchError("Choose a valid research status.")
@@ -241,143 +344,3 @@ def monitored_research(connection: sqlite3.Connection, platform: str | None = No
         )
         items.append(item)
     return items
-
-
-def research_candidates(connection: sqlite3.Connection) -> list[dict]:
-    """Return current non-cash positions plus explicitly watched instruments."""
-    from .positions import positions_as_of
-
-    candidates: dict[int, dict] = {}
-    for position in positions_as_of(connection, date.today().isoformat()):
-        instrument = position["instrument"]
-        if instrument["asset_class"] != "cash":
-            candidates[instrument["id"]] = dict(instrument)
-    watched = connection.execute(
-        """SELECT i.* FROM watchlist w JOIN instruments i ON i.id = w.instrument_id
-           WHERE i.asset_class != 'cash' ORDER BY i.platform, i.name"""
-    ).fetchall()
-    for instrument in watched:
-        candidates[instrument["id"]] = dict(instrument)
-    return sorted(candidates.values(), key=lambda item: (item["platform"], item["name"]))
-
-
-def run_ai_research(
-    connection: sqlite3.Connection,
-    provider,
-    instrument_ids: list[int],
-    focus_prompt: str = "",
-    compare_current: bool = False,
-) -> ResearchRunResult:
-    if not instrument_ids:
-        raise ResearchError("Select at least one investment.")
-    if len(instrument_ids) > 10:
-        raise ResearchError("Select no more than 10 investments per research run.")
-    if len(set(instrument_ids)) != len(instrument_ids):
-        raise ResearchError("Each investment may be selected only once.")
-    focus_prompt = focus_prompt.strip()
-    if len(focus_prompt) > 1000:
-        raise ResearchError("Research focus must be 1,000 characters or fewer.")
-
-    placeholders = ",".join("?" for _ in instrument_ids)
-    instruments = connection.execute(
-        f"SELECT * FROM instruments WHERE asset_class != 'cash' AND id IN ({placeholders})",
-        instrument_ids,
-    ).fetchall()
-    if len(instruments) != len(instrument_ids):
-        raise ResearchError("One or more selected investments are unavailable.")
-    by_id = {row["id"]: row for row in instruments}
-    run_id = connection.execute(
-        """INSERT INTO research_runs
-           (status, scope_json, focus_prompt, provider, model, prompt_version)
-           VALUES ('running', ?, ?, ?, ?, ?)""",
-        (
-            json.dumps(instrument_ids), focus_prompt or None,
-            provider.provider_name, provider.model, "research-v1",
-        ),
-    ).lastrowid
-    connection.commit()
-
-    created = 0
-    failures: list[str] = []
-    for instrument_id in instrument_ids:
-        instrument = by_id[instrument_id]
-        latest = connection.execute(
-            "SELECT price, price_date FROM prices WHERE instrument_id = ? ORDER BY price_date DESC, id DESC LIMIT 1",
-            (instrument_id,),
-        ).fetchone()
-        current = connection.execute(
-            "SELECT summary FROM research_items WHERE instrument_id = ? AND status = 'monitoring'",
-            (instrument_id,),
-        ).fetchone() if compare_current else None
-        provider_input = {
-            "name": instrument["name"], "ticker": instrument["ticker"],
-            "asset_class": instrument["asset_class"], "platform": instrument["platform"],
-            "native_currency": instrument["native_currency"],
-            "market_price": latest["price"] if latest else None,
-            "market_price_date": latest["price_date"] if latest else None,
-            "current_thesis": current["summary"] if current else None,
-        }
-        try:
-            result = provider.research(provider_input, focus_prompt)
-            cursor = connection.execute(
-                """
-                INSERT INTO research_items (
-                    instrument_id, run_id, origin, status, stance, research_date,
-                    market_price, market_price_date, trigger_type, trigger_price,
-                    trigger_currency, event_trigger, time_horizon, summary,
-                    supporting_points_json, risks_json, confidence, confidence_reason,
-                    source_target, source_target_currency, source_target_issuer,
-                    original_payload_json
-                ) VALUES (?, ?, 'ai', 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    instrument_id, run_id, result["stance"], date.today().isoformat(),
-                    provider_input["market_price"], provider_input["market_price_date"],
-                    result.get("trigger_type") or "none", result.get("trigger_price"),
-                    result.get("trigger_currency"), result.get("event_trigger"),
-                    result.get("time_horizon"), result["summary"],
-                    json.dumps(result["supporting_points"]), json.dumps(result["risks"]),
-                    result["confidence"], result["confidence_reason"],
-                    result.get("source_target"), result.get("source_target_currency"),
-                    result.get("source_target_issuer"), json.dumps(result),
-                ),
-            )
-            item_id = cursor.lastrowid
-            seen_urls: set[str] = set()
-            for source in result.get("sources", []):
-                if source["url"] in seen_urls:
-                    continue
-                seen_urls.add(source["url"])
-                connection.execute(
-                    """INSERT INTO research_sources
-                       (research_item_id, title, publisher, url, published_at, source_type)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    (
-                        item_id, source["title"], source.get("publisher"), source["url"],
-                        source.get("published_at"), source.get("source_type", "other"),
-                    ),
-                )
-            connection.execute(
-                """INSERT INTO research_events
-                   (research_item_id, event_type, to_status, detail)
-                   VALUES (?, 'generated', 'draft', ?)""",
-                (item_id, f"AI draft generated by {provider.provider_name}/{provider.model}"),
-            )
-            connection.commit()
-            created += 1
-        except Exception as error:
-            connection.rollback()
-            message = str(error).strip() or "Unknown provider error"
-            secret = getattr(provider, "api_key", "")
-            if secret:
-                message = message.replace(secret, "[redacted]")
-            failures.append(f"{instrument['ticker'] or instrument['name']}: {message}")
-
-    status = "completed" if not failures else "partial" if created else "failed"
-    connection.execute(
-        """UPDATE research_runs SET status = ?, completed_at = CURRENT_TIMESTAMP,
-           error_summary = ? WHERE id = ?""",
-        (status, "\n".join(failures) or None, run_id),
-    )
-    connection.commit()
-    return ResearchRunResult(run_id, created, tuple(failures))

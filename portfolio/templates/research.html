@@ -3,7 +3,7 @@
 {% block content %}
 <div class="head research-head">
   <div><h1>Research</h1><p class="sub">Review investment theses before they influence what you monitor.</p></div>
-  <a class="btn primary" href="{{ url_for('new_research') }}">+ Add manual research</a>
+  <div class="actions"><a class="btn" href="{{ url_for('import_research') }}">Import AI research</a><a class="btn primary" href="{{ url_for('new_research') }}">+ Add manual research</a></div>
 </div>
 
 <div class="research-stats">
@@ -15,11 +15,9 @@
 </div>
 
 <section class="card research-run-panel">
-  <div><strong>AI research</strong><p class="sub">Search current public sources and create cited drafts for your review.{% if not research_provider_configured %} Add an OpenAI API key to enable it.{% endif %}</p></div>
-  {% if research_provider_configured %}<a class="btn primary" href="{{ url_for('run_research') }}">Run AI research</a>{% else %}<a class="btn" href="{{ url_for('run_research') }}">Configure AI research</a>{% endif %}
+  <div><strong>AI-assisted research</strong><p class="sub">Use Codex or another agent to research an investment, then import its cited result here as a draft.</p></div>
+  <a class="btn" href="{{ url_for('import_research') }}">Import a result</a>
 </section>
-
-{% if recent_runs %}<details class="research-runs"><summary>Recent AI runs</summary><div class="card"><table><thead><tr><th>Requested</th><th>Provider</th><th>Status</th><th>Result</th></tr></thead><tbody>{% for run in recent_runs %}<tr><td>{{ run.requested_at|timestamp }}</td><td>{{ run.provider }} · {{ run.model }}</td><td><span class="run-status {{ run.status }}">{{ run.status|title }}</span></td><td>{{ run.error_summary or 'Drafts created successfully' }}</td></tr>{% endfor %}</tbody></table></div></details>{% endif %}
 
 <div class="research-toolbar">
   <div class="research-tabs" role="navigation" aria-label="Research status">

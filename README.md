@@ -29,8 +29,8 @@ be used for other platforms.
 - Stores manual prices and USD/PHP rates when an automated source is unavailable.
 - Tracks dividend income, analyst ratings, research notes, and reconciliation
   records.
-- Creates cited AI research drafts on demand, lets you review or archive them,
-  and shows only user-approved monitored theses on the dashboard.
+- Stores manual and externally AI-assisted research drafts, then shows only
+  user-approved monitored theses on the dashboard.
 - Exports a complete SQLite backup from Settings.
 - Keeps display name, base currency, appearance, database information, backup,
   and reset controls in Settings.
@@ -130,25 +130,16 @@ For a delisted or unchanged asset, edit the instrument and enable **Carry the
 last known price forward in charts**. The chart identifies the result as an
 assumed value rather than presenting it as a newly fetched quote.
 
-## Configure AI research
+## Import AI-assisted research
 
-The Research page can use OpenAI's Responses API with web search to create
-structured, cited drafts. Set an API key before starting the app:
+Version 1.1 keeps research local and user-led. You can ask Codex or another AI
+agent to research an instrument, then paste its structured JSON result through
+**Research → Import AI research**. The app stores the result and its source
+links locally as a draft for review.
 
-```sh
-export OPENAI_API_KEY="your-key"
-python3 app.py
-```
-
-Alternatively, place only the key in `instance/openai_api_key`. The `instance/`
-directory is ignored by Git. You can choose another compatible model with
-`OPENAI_RESEARCH_MODEL`; the default is `gpt-5.5`.
-
-AI research runs only when you click **Run AI research**. The request includes
-the selected instrument's name, ticker, asset class, market, currency, dated
-local price, and your optional focus. It excludes quantities, cost basis,
-portfolio values, account identifiers, and statement filenames. Every result
-starts as a draft and cannot reach dashboard monitoring until you approve it.
+The app does not make AI API calls, so this workflow has no API configuration or
+usage cost. Every imported result starts as a draft and cannot reach dashboard
+monitoring until you approve it.
 
 ## Local data and backups
 

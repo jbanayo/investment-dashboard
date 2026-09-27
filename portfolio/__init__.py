@@ -24,8 +24,6 @@ def create_app(test_config: dict | None = None) -> "Flask":
         BASE_CURRENCY=os.environ.get("PORTFOLIO_BASE_CURRENCY", "PHP").upper(),
         SECRET_KEY=os.environ.get("PORTFOLIO_SECRET_KEY", "local-development-only"),
         TWELVE_DATA_API_KEY=os.environ.get("TWELVE_DATA_API_KEY", ""),
-        OPENAI_API_KEY=os.environ.get("OPENAI_API_KEY", ""),
-        OPENAI_RESEARCH_MODEL=os.environ.get("OPENAI_RESEARCH_MODEL", "gpt-5.5"),
     )
 
     if test_config:
@@ -41,10 +39,6 @@ def create_app(test_config: dict | None = None) -> "Flask":
         key_file = Path(app.instance_path) / "twelve_data_api_key"
         if key_file.exists():
             app.config["TWELVE_DATA_API_KEY"] = key_file.read_text().strip()
-    if not app.config["OPENAI_API_KEY"]:
-        key_file = Path(app.instance_path) / "openai_api_key"
-        if key_file.exists():
-            app.config["OPENAI_API_KEY"] = key_file.read_text().strip()
 
     def database_connection():
         return connect(database_path)
@@ -99,11 +93,10 @@ def create_app(test_config: dict | None = None) -> "Flask":
     from .pse_edge import refresh_pse_edge_prices
     from .research import (
         CONFIDENCE_LEVELS, STANCES, STATUSES, TRIGGER_TYPES, ResearchError,
-        create_manual_research, list_research, research_counts,
-        monitored_research, research_candidates, run_ai_research,
+        create_manual_research, import_ai_research, list_research, research_counts,
+        monitored_research,
         transition_research_item,
     )
-    from .research_provider import OpenAIWebResearchProvider, ProviderError
 
     app.jinja_env.filters.update(FILTERS)
 
@@ -678,48 +671,26 @@ def create_app(test_config: dict | None = None) -> "Flask":
             if selected_platform not in platforms:
                 selected_platform = None
             items = list_research(connection, status, selected_platform)
-            recent_runs = connection.execute(
-                "SELECT * FROM research_runs ORDER BY requested_at DESC, id DESC LIMIT 5"
-            ).fetchall()
         return render_template(
             "research.html", items=items, counts=counts, status=status,
             statuses=STATUSES, platforms=platforms, selected_platform=selected_platform,
-            recent_runs=recent_runs,
-            research_provider_configured=bool(app.config["OPENAI_API_KEY"]),
-            research_model=app.config["OPENAI_RESEARCH_MODEL"],
         )
 
-    @app.route("/research/run", methods=["GET", "POST"])
-    def run_research():
-        with database_connection() as connection:
-            candidates = research_candidates(connection)
-        configured = bool(app.config["OPENAI_API_KEY"])
+    @app.route("/research/import", methods=["GET", "POST"])
+    def import_research():
         if request.method == "POST":
-            if not configured:
-                flash("Configure an OpenAI API key before running AI research.", "error")
-                return redirect(url_for("run_research"))
             try:
-                instrument_ids = [int(value) for value in request.form.getlist("instrument_id")]
-                provider = OpenAIWebResearchProvider(
-                    app.config["OPENAI_API_KEY"], app.config["OPENAI_RESEARCH_MODEL"]
-                )
                 with database_connection() as connection:
-                    result = run_ai_research(
-                        connection, provider, instrument_ids,
-                        request.form.get("focus_prompt", ""),
-                        request.form.get("compare_current") == "1",
-                    )
-                if result.created:
-                    flash(f"AI research created {result.created} draft{'s' if result.created != 1 else ''}.")
-                if result.failures:
-                    flash("Some research failed: " + "; ".join(result.failures), "error")
-                return redirect(url_for("research", status="draft") if result.created else url_for("run_research"))
-            except (ResearchError, ProviderError, ValueError) as error:
+                    import_ai_research(connection, request.form)
+                flash("AI-assisted research imported as a draft for review.")
+                return redirect(url_for("research", status="draft"))
+            except ResearchError as error:
                 flash(str(error), "error")
-        return render_template(
-            "research_run.html", candidates=candidates, configured=configured,
-            research_model=app.config["OPENAI_RESEARCH_MODEL"],
-        )
+        with database_connection() as connection:
+            instruments = connection.execute(
+                "SELECT * FROM instruments WHERE asset_class != 'cash' ORDER BY platform, name"
+            ).fetchall()
+        return render_template("research_import.html", instruments=instruments)
 
     @app.route("/research/new", methods=["GET", "POST"])
     def new_research():

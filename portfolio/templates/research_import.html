@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Import AI research · {{ app_preferences.display_name }}{% endblock %}
+{% block content %}
+<div class="head"><div><h1>Import AI research</h1><p class="sub">Paste a structured result from Codex or another AI agent. It always enters the review inbox as a draft.</p></div><a class="btn" href="{{ url_for('research') }}">Back to research</a></div>
+<form class="card form-grid" method="post">
+  <label class="field">Investment<select class="input" required name="instrument_id"><option value="">Choose an investment</option>{% for instrument in instruments %}<option value="{{ instrument.id }}" {% if request.form.get('instrument_id') == instrument.id|string %}selected{% endif %}>{{ instrument.name }}{% if instrument.ticker %} ({{ instrument.ticker }}){% endif %} · {{ instrument.platform }}</option>{% endfor %}</select></label>
+  <label class="field">Research date<input class="input" required type="date" name="research_date" value="{{ request.form.get('research_date', '') }}"></label>
+  <label class="field full">Agent name <span class="sub">optional</span><input class="input" name="agent_name" value="{{ request.form.get('agent_name', 'Codex') }}" placeholder="Codex"></label>
+  <label class="field full">Research JSON<textarea class="input code-input" required name="research_json" rows="18" spellcheck="false" placeholder='Paste the JSON output from the research prompt here.'>{{ request.form.get('research_json', '') }}</textarea><span class="sub">It must include the thesis, stance, evidence, risks, confidence, trigger details, and cited sources.</span></label>
+  <div class="privacy-note full"><strong>Review before importing</strong><p>Check that the AI output has real, relevant source URLs. The app stores the pasted result locally and does not call an AI service from this page.</p></div>
+  <div class="actions full"><a class="btn" href="{{ url_for('research') }}">Cancel</a><button class="btn primary" type="submit">Import as draft</button></div>
+</form>
+<section class="card prompt-guide"><h2>Need a prompt?</h2><p>Use the ready-to-paste <a href="{{ url_for('static', filename='research-agent-prompt.md') }}" download>research-agent prompt</a>, ask the agent to return only JSON, then paste it above.</p></section>
+{% endblock %}
