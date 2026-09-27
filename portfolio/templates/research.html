@@ -15,9 +15,11 @@
 </div>
 
 <section class="card research-run-panel">
-  <div><strong>AI research</strong><p class="sub">The review workflow is ready. AI generation and source retrieval will be connected in the next development slice.</p></div>
-  <button class="btn" type="button" disabled title="AI provider is not configured yet">Run AI research</button>
+  <div><strong>AI research</strong><p class="sub">Search current public sources and create cited drafts for your review.{% if not research_provider_configured %} Add an OpenAI API key to enable it.{% endif %}</p></div>
+  {% if research_provider_configured %}<a class="btn primary" href="{{ url_for('run_research') }}">Run AI research</a>{% else %}<a class="btn" href="{{ url_for('run_research') }}">Configure AI research</a>{% endif %}
 </section>
+
+{% if recent_runs %}<details class="research-runs"><summary>Recent AI runs</summary><div class="card"><table><thead><tr><th>Requested</th><th>Provider</th><th>Status</th><th>Result</th></tr></thead><tbody>{% for run in recent_runs %}<tr><td>{{ run.requested_at|timestamp }}</td><td>{{ run.provider }} · {{ run.model }}</td><td><span class="run-status {{ run.status }}">{{ run.status|title }}</span></td><td>{{ run.error_summary or 'Drafts created successfully' }}</td></tr>{% endfor %}</tbody></table></div></details>{% endif %}
 
 <div class="research-toolbar">
   <div class="research-tabs" role="navigation" aria-label="Research status">
@@ -32,7 +34,7 @@
   {% for item in items %}
   <article class="card research-card">
     <div class="research-card-top">
-      <div><div class="research-title"><h2>{{ item.instrument_name }}</h2>{% if item.ticker %}<span>{{ item.ticker }}</span>{% endif %}<span class="stance {{ item.stance }}">{{ item.stance|title }}</span></div><p class="sub">{{ item.platform }} · {{ item.origin|title }} · {{ item.research_date }}</p></div>
+      <div><div class="research-title"><h2>{{ item.instrument_name }}</h2>{% if item.ticker %}<span>{{ item.ticker }}</span>{% endif %}<span class="stance {{ item.stance }}">{{ item.stance|title }}</span>{% if item.origin == 'ai' and not item.sources %}<span class="badge stale">Incomplete · no verified sources</span>{% endif %}</div><p class="sub">{{ item.platform }} · {{ item.origin|title }} · {{ item.research_date }}</p></div>
       {% if item.confidence %}<span class="confidence">{{ item.confidence|title }} confidence</span>{% endif %}
     </div>
     <p class="research-summary">{{ item.summary }}</p>
@@ -41,7 +43,7 @@
       {% if item.supporting_points %}<div><strong>Why</strong><ul>{% for point in item.supporting_points %}<li>{{ point }}</li>{% endfor %}</ul></div>{% endif %}
       {% if item.risks %}<div><strong>Risks</strong><ul>{% for risk in item.risks %}<li>{{ risk }}</li>{% endfor %}</ul></div>{% endif %}
     </div>{% endif %}
-    {% if item.sources %}<div class="research-sources">Sources: {% for source in item.sources %}<a href="{{ source.url }}" target="_blank" rel="noopener noreferrer">{{ source.title }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}
+    {% if item.sources %}<div class="research-sources">Sources: {% for source in item.sources %}<a href="{{ source.url }}" target="_blank" rel="noopener noreferrer">{{ source.title }}</a> <span>{{ source.source_type|title }}{% if source.published_at %} · {{ source.published_at }}{% endif %}</span>{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}
     <div class="actions research-actions">
       {% if status != 'monitoring' %}<form method="post" action="{{ url_for('research_status', item_id=item.id) }}"><input type="hidden" name="status" value="monitoring"><input type="hidden" name="return_status" value="{{ status }}"><button class="btn primary" type="submit">Keep monitoring</button></form>{% endif %}
       {% if status != 'saved' %}<form method="post" action="{{ url_for('research_status', item_id=item.id) }}"><input type="hidden" name="status" value="saved"><input type="hidden" name="return_status" value="{{ status }}"><button class="btn" type="submit">Save research</button></form>{% endif %}
