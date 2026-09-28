@@ -7,7 +7,7 @@ from portfolio.db import connect, migrate
 from portfolio.instruments import create_instrument
 from portfolio.research import (
     ResearchError, create_manual_research, monitored_research,
-    transition_research_item,
+    transition_research_item, update_research_item,
 )
 
 
@@ -76,6 +76,21 @@ class ResearchTests(unittest.TestCase):
         self.assertTrue(item["trigger_met"])
         self.assertEqual(260, item["current_price"])
 
+    def test_edit_updates_working_thesis_and_records_event(self):
+        item_id = create_manual_research(self.connection, self.values())
+        updated = self.values("Revised thesis after earnings")
+        updated["stance"] = "reduce"
+        update_research_item(self.connection, item_id, updated)
+        item = self.connection.execute(
+            "SELECT * FROM research_items WHERE id = ?", (item_id,)
+        ).fetchone()
+        self.assertEqual("reduce", item["stance"])
+        self.assertEqual("Revised thesis after earnings", item["summary"])
+        self.assertEqual("edited", self.connection.execute(
+            "SELECT event_type FROM research_events WHERE research_item_id = ? "
+            "ORDER BY id DESC", (item_id,)
+        ).fetchone()[0])
+
     def test_research_page_and_manual_form_are_functional(self):
         self.connection.commit()
         self.connection.close()
@@ -85,6 +100,16 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertIn(b"Hold while services growth", response.data)
         self.assertIn(b"Research saved", response.data)
+        with connect(self.database) as check:
+            item_id = check.execute("SELECT id FROM research_items").fetchone()[0]
+        edited = self.values("Edited from the browser")
+        edited["stance"] = "sell"
+        response = client.post(
+            f"/research/{item_id}/edit", data=edited, follow_redirects=True
+        )
+        self.assertEqual(200, response.status_code)
+        self.assertIn(b"Edited from the browser", response.data)
+        self.assertIn(b"original imported Markdown was preserved", response.data)
         self.connection = connect(self.database)
 
 

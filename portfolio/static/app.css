@@ -111,10 +111,21 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .research-sources { margin-top: 12px; color: var(--muted); font-size: 13px; }
 .research-sources a { color: var(--accent); }
 .research-sources span { color: var(--muted); }
+.research-artifact { margin-top: 14px; color: var(--ink-2); }
+.research-artifact summary { cursor: pointer; }
+.research-artifact pre { max-height: 320px; overflow: auto; white-space: pre-wrap; padding: 12px; border-radius: 8px; background: var(--surface-2); color: var(--ink); }
 .research-actions { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 14px; }
 .research-actions form { margin: 0; }
 .research-empty { padding: 40px; text-align: center; }
 .research-empty h2 { margin: 0 0 4px; }
+.research-import-guide, .research-upload { padding: 20px; margin-bottom: 16px; }
+.research-import-guide h2, .research-upload h2 { margin: 4px 0; }
+.research-import-guide .field { margin-top: 16px; }
+.research-file-drop { border: 1px dashed var(--border); border-radius: 10px; padding: 18px; background: var(--surface-2); }
+.research-file-drop input { display: block; margin: 8px 0; }
+.research-preview-card { margin-top: 16px; }
+.research-preview-actions { justify-content: flex-end; margin-top: 16px; }
+.research-preview-actions form { margin: 0; }
 .form-section { border: 1px solid var(--border); border-radius: 9px; padding: 14px; }
 .form-section legend { font-weight: 650; padding: 0 5px; }
 .form-grid.nested { margin: 0; padding: 0; border: 0; }

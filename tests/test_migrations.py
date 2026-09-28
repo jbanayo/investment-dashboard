@@ -31,12 +31,62 @@ class MigrationTests(unittest.TestCase):
                     "ratings", "documents", "notes", "schema_migrations",
                     "price_fetch_usage", "instrument_source_mappings",
                     "research_runs", "research_items", "research_sources",
-                    "research_events", "watchlist",
+                    "research_events", "research_imports",
+                    "research_import_previews", "watchlist",
                 }.issubset(tables)
             )
             self.assertEqual(
-                13,
+                14,
                 connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0],
+            )
+
+    def test_research_import_artifact_and_preview_constraints(self):
+        migrate(self.database)
+        with connect(self.database) as connection:
+            instrument_id = connection.execute(
+                "INSERT INTO instruments "
+                "(name, ticker, asset_class, platform, native_currency) "
+                "VALUES ('Apple', 'AAPL', 'us_equity', 'IBKR', 'USD')"
+            ).lastrowid
+            item_id = connection.execute(
+                """INSERT INTO research_items
+                   (instrument_id, origin, status, stance, research_date, summary)
+                   VALUES (?, 'ai', 'draft', 'hold', '2026-09-28', 'Test thesis')""",
+                (instrument_id,),
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO research_imports
+                   (research_item_id, format_version, filename, raw_content,
+                    normalized_payload_json)
+                   VALUES (?, 1, 'apple.md', '# Thesis', '{}')""",
+                (item_id,),
+            )
+            with self.assertRaises(sqlite3.IntegrityError):
+                connection.execute(
+                    """INSERT INTO research_imports
+                       (research_item_id, format_version, filename, raw_content,
+                        normalized_payload_json)
+                       VALUES (?, 1, 'duplicate.md', '# Thesis', '{}')""",
+                    (item_id,),
+                )
+            connection.execute(
+                """INSERT INTO research_import_previews
+                   (id, instrument_id, filename, raw_content,
+                    normalized_payload_json, expires_at)
+                   VALUES ('preview-token', ?, 'apple.md', '# Thesis', '{}',
+                           '2026-09-28 12:00:00')""",
+                (instrument_id,),
+            )
+
+            connection.execute("DELETE FROM research_items WHERE id = ?", (item_id,))
+            self.assertEqual(
+                0,
+                connection.execute("SELECT COUNT(*) FROM research_imports").fetchone()[0],
+            )
+            connection.execute("DELETE FROM instruments WHERE id = ?", (instrument_id,))
+            self.assertEqual(
+                0,
+                connection.execute("SELECT COUNT(*) FROM research_import_previews").fetchone()[0],
             )
 
     def test_foreign_keys_and_platform_scoped_external_ids_are_enforced(self):

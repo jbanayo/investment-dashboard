@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -93,9 +94,14 @@ def create_app(test_config: dict | None = None) -> "Flask":
     from .pse_edge import refresh_pse_edge_prices
     from .research import (
         CONFIDENCE_LEVELS, STANCES, STATUSES, TRIGGER_TYPES, ResearchError,
-        create_manual_research, import_ai_research, list_research, research_counts,
+        create_manual_research, list_research, research_counts,
         monitored_research,
-        transition_research_item,
+        transition_research_item, update_research_item,
+    )
+    from .research_import import (
+        MAX_IMPORT_BYTES, ResearchImportError, confirm_research_import,
+        discard_research_import_preview, research_import_preview,
+        stage_research_import,
     )
 
     app.jinja_env.filters.update(FILTERS)
@@ -678,19 +684,53 @@ def create_app(test_config: dict | None = None) -> "Flask":
 
     @app.route("/research/import", methods=["GET", "POST"])
     def import_research():
-        if request.method == "POST":
-            try:
-                with database_connection() as connection:
-                    import_ai_research(connection, request.form)
-                flash("AI-assisted research imported as a draft for review.")
-                return redirect(url_for("research", status="draft"))
-            except ResearchError as error:
-                flash(str(error), "error")
         with database_connection() as connection:
             instruments = connection.execute(
                 "SELECT * FROM instruments WHERE asset_class != 'cash' ORDER BY platform, name"
             ).fetchall()
+        if request.method == "POST":
+            try:
+                instrument_id = int(request.form.get("instrument_id", ""))
+                upload = request.files.get("research_file")
+                if not upload or not upload.filename:
+                    raise ResearchImportError("Choose a Markdown research file.")
+                content = upload.stream.read(MAX_IMPORT_BYTES + 1)
+                with database_connection() as connection:
+                    token = stage_research_import(
+                        connection, instrument_id, upload.filename,
+                        request.form.get("agent_name", ""), content,
+                    )
+                return redirect(url_for("preview_research_import", token=token))
+            except (ResearchImportError, TypeError, ValueError) as error:
+                flash(str(error), "error")
         return render_template("research_import.html", instruments=instruments)
+
+    @app.get("/research/import/preview/<token>")
+    def preview_research_import(token: str):
+        with database_connection() as connection:
+            preview = research_import_preview(connection, token)
+        if not preview:
+            flash("This import preview expired or was already used.", "error")
+            return redirect(url_for("import_research"))
+        return render_template("research_import_preview.html", preview=preview)
+
+    @app.post("/research/import/preview/<token>/cancel")
+    def cancel_research_import(token: str):
+        with database_connection() as connection:
+            discard_research_import_preview(connection, token)
+        flash("Research import cancelled.")
+        return redirect(url_for("import_research"))
+
+    @app.post("/research/import/preview/<token>/confirm")
+    def confirm_research_import_route(token: str):
+        try:
+            with database_connection() as connection:
+                confirm_research_import(connection, token)
+            flash("AI-assisted research imported for review.")
+            return redirect(url_for("research", status="draft"))
+        except ResearchImportError as error:
+            flash(str(error), "error")
+            return redirect(url_for("import_research"))
 
     @app.route("/research/new", methods=["GET", "POST"])
     def new_research():
@@ -712,6 +752,48 @@ def create_app(test_config: dict | None = None) -> "Flask":
         return render_template(
             "research_form.html", instruments=instruments, stances=STANCES,
             trigger_types=TRIGGER_TYPES, confidence_levels=CONFIDENCE_LEVELS,
+            form_values=request.form, editing=False, item=None,
+        )
+
+    @app.route("/research/<int:item_id>/edit", methods=["GET", "POST"])
+    def edit_research(item_id: int):
+        with database_connection() as connection:
+            item = connection.execute(
+                """SELECT r.*, i.name AS instrument_name, i.ticker, i.platform
+                   FROM research_items r JOIN instruments i ON i.id = r.instrument_id
+                   WHERE r.id = ?""",
+                (item_id,),
+            ).fetchone()
+        if not item:
+            return "Research item not found", 404
+        if request.method == "POST":
+            try:
+                with database_connection() as connection:
+                    update_research_item(connection, item_id, request.form)
+                flash("Research updated. The original imported Markdown was preserved.")
+                return redirect(url_for("research", status=item["status"]))
+            except ResearchError as error:
+                flash(str(error), "error")
+                form_values = request.form
+        else:
+            form_values = {
+                "instrument_id": str(item["instrument_id"]),
+                "research_date": item["research_date"], "stance": item["stance"],
+                "time_horizon": item["time_horizon"] or "",
+                "trigger_type": item["trigger_type"],
+                "trigger_price": item["trigger_price"] or "",
+                "trigger_currency": item["trigger_currency"] or "",
+                "expires_on": item["expires_on"] or "",
+                "event_trigger": item["event_trigger"] or "", "summary": item["summary"],
+                "supporting_points": "\n".join(json.loads(item["supporting_points_json"])),
+                "risks": "\n".join(json.loads(item["risks_json"])),
+                "confidence": item["confidence"] or "",
+                "confidence_reason": item["confidence_reason"] or "",
+            }
+        return render_template(
+            "research_form.html", instruments=(), stances=STANCES,
+            trigger_types=TRIGGER_TYPES, confidence_levels=CONFIDENCE_LEVELS,
+            form_values=form_values, editing=True, item=item,
         )
 
     @app.post("/research/<int:item_id>/status")

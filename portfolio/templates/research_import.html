@@ -1,14 +1,42 @@
 {% extends "base.html" %}
-{% block title %}Import AI research · {{ app_preferences.display_name }}{% endblock %}
+{% block title %}Upload AI findings · {{ app_preferences.display_name }}{% endblock %}
 {% block content %}
-<div class="head"><div><h1>Import AI research</h1><p class="sub">Paste a structured result from Codex or another AI agent. It always enters the review inbox as a draft.</p></div><a class="btn" href="{{ url_for('research') }}">Back to research</a></div>
-<form class="card form-grid" method="post">
-  <label class="field">Investment<select class="input" required name="instrument_id"><option value="">Choose an investment</option>{% for instrument in instruments %}<option value="{{ instrument.id }}" {% if request.form.get('instrument_id') == instrument.id|string %}selected{% endif %}>{{ instrument.name }}{% if instrument.ticker %} ({{ instrument.ticker }}){% endif %} · {{ instrument.platform }}</option>{% endfor %}</select></label>
-  <label class="field">Research date<input class="input" required type="date" name="research_date" value="{{ request.form.get('research_date', '') }}"></label>
-  <label class="field full">Agent name <span class="sub">optional</span><input class="input" name="agent_name" value="{{ request.form.get('agent_name', 'Codex') }}" placeholder="Codex"></label>
-  <label class="field full">Research JSON<textarea class="input code-input" required name="research_json" rows="18" spellcheck="false" placeholder='Paste the JSON output from the research prompt here.'>{{ request.form.get('research_json', '') }}</textarea><span class="sub">It must include the thesis, stance, evidence, risks, confidence, trigger details, and cited sources.</span></label>
-  <div class="privacy-note full"><strong>Review before importing</strong><p>Check that the AI output has real, relevant source URLs. The app stores the pasted result locally and does not call an AI service from this page.</p></div>
-  <div class="actions full"><a class="btn" href="{{ url_for('research') }}">Cancel</a><button class="btn primary" type="submit">Import as draft</button></div>
+<div class="head"><div><h1>Upload AI findings</h1><p class="sub">Create a prompt for your AI agent, then upload its Markdown result for review.</p></div><a class="btn" href="{{ url_for('research') }}">Back to research</a></div>
+<section class="card research-import-guide">
+  <div><span class="eyebrow">Step 1</span><h2>Prepare the research request</h2><p class="sub">Choose the investment. The prompt asks for public, cited research in the app's versioned Markdown format.</p></div>
+  <label class="field">Investment<select class="input" id="prompt-instrument"><option value="">Choose an investment</option>{% for instrument in instruments %}{% if instrument.ticker %}<option data-name="{{ instrument.name }}" data-ticker="{{ instrument.ticker }}">{{ instrument.name }} ({{ instrument.ticker }}) · {{ instrument.platform }}</option>{% endif %}{% endfor %}</select></label>
+  <label class="field">Optional focus<textarea class="input" id="prompt-focus" rows="2" placeholder="Example: focus on valuation and the next earnings cycle"></textarea></label>
+  <label class="field">Prompt<textarea class="input code-input" id="agent-prompt" rows="9" readonly>Select an investment to create its prompt.</textarea></label>
+  <div class="actions"><button class="btn" id="copy-agent-prompt" type="button">Copy prompt</button><a class="btn" href="{{ url_for('static', filename='research-import-template.md') }}" download>Download Markdown template</a></div>
+</section>
+<form class="card form-grid research-upload" method="post" enctype="multipart/form-data">
+  <div class="full"><span class="eyebrow">Step 2</span><h2>Upload the completed Markdown</h2><p class="sub">The app validates and previews the file before creating any research card.</p></div>
+  <label class="field">Investment<select class="input" required name="instrument_id"><option value="">Choose an investment</option>{% for instrument in instruments %}{% if instrument.ticker %}<option value="{{ instrument.id }}" {% if request.form.get('instrument_id') == instrument.id|string %}selected{% endif %}>{{ instrument.name }} ({{ instrument.ticker }}) · {{ instrument.platform }}</option>{% endif %}{% endfor %}</select></label>
+  <label class="field">Agent name <span class="sub">optional</span><input class="input" name="agent_name" value="{{ request.form.get('agent_name', 'Codex') }}" maxlength="80"></label>
+  <label class="field full research-file-drop">Markdown file<input required type="file" name="research_file" accept=".md,.markdown,text/markdown,text/plain"><span>Choose or drop one UTF-8 .md or .markdown file, up to 1 MB.</span></label>
+  <div class="privacy-note full"><strong>Your portfolio stays local</strong><p>The app does not contact an AI provider. You decide what to share with your agent, and this upload is stored only in the local database after confirmation.</p></div>
+  <div class="actions full"><a class="btn" href="{{ url_for('research') }}">Cancel</a><button class="btn primary" type="submit">Preview findings</button></div>
 </form>
-<section class="card prompt-guide"><h2>Need a prompt?</h2><p>Use the ready-to-paste <a href="{{ url_for('static', filename='research-agent-prompt.md') }}" download>research-agent prompt</a>, ask the agent to return only JSON, then paste it above.</p></section>
+<script>
+(() => {
+  const select = document.getElementById('prompt-instrument');
+  const focus = document.getElementById('prompt-focus');
+  const prompt = document.getElementById('agent-prompt');
+  const copy = document.getElementById('copy-agent-prompt');
+  function updatePrompt() {
+    const option = select.options[select.selectedIndex];
+    if (!option || !option.dataset.ticker) { prompt.value = 'Select an investment to create its prompt.'; return; }
+    const focusText = focus.value.trim() ? `\nResearch focus: ${focus.value.trim()}\n` : '';
+    prompt.value = `Research ${option.dataset.name} (${option.dataset.ticker}) using current public sources.${focusText}\nReturn one UTF-8 Markdown file that follows format_version 1 in the attached template. Preserve the required YAML frontmatter and the Thesis, Supporting points, Risks, and Sources headings. Use real HTTP/HTTPS source links, distinguish facts from interpretation, include conflicting evidence, and do not invent analyst targets. Return only the completed Markdown.`;
+  }
+  select.addEventListener('change', updatePrompt);
+  focus.addEventListener('input', updatePrompt);
+  copy.addEventListener('click', async () => {
+    if (!select.value) return;
+    await navigator.clipboard.writeText(prompt.value);
+    copy.textContent = 'Copied';
+    setTimeout(() => { copy.textContent = 'Copy prompt'; }, 1400);
+  });
+})();
+</script>
 {% endblock %}

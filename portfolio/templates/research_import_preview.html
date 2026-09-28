@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Preview AI findings · {{ app_preferences.display_name }}{% endblock %}
+{% block content %}
+<div class="head"><div><h1>Preview AI findings</h1><p class="sub">Check every parsed field before creating a draft.</p></div><span class="badge">Format v{{ preview.payload.format_version }}</span></div>
+{% if preview.warnings %}<div class="flash error" role="alert"><strong>Review needed</strong><ul>{% for warning in preview.warnings %}<li>{{ warning }}</li>{% endfor %}</ul></div>{% endif %}
+<article class="card research-card research-preview-card">
+  <div class="research-card-top"><div><div class="research-title"><h2>{{ preview.instrument_name }}</h2><span>{{ preview.ticker }}</span><span class="stance {{ preview.payload.stance }}">{{ preview.payload.stance|title }}</span></div><p class="sub">{{ preview.platform }} · {{ preview.payload.research_date }} · {{ preview.filename }}{% if preview.agent_name %} · {{ preview.agent_name }}{% endif %}</p></div><span class="confidence">{{ preview.payload.confidence|title }} confidence</span></div>
+  <p class="research-summary">{{ preview.payload.summary }}</p>
+  {% if preview.payload.trigger_type != 'none' %}<div class="research-trigger"><strong>Trigger</strong> {% if preview.payload.trigger_type == 'event' %}{{ preview.payload.event_trigger }}{% else %}{{ preview.payload.trigger_type|replace('_', ' ')|title }} {{ preview.payload.trigger_price|money(preview.payload.trigger_currency, 2) }}{% endif %}<span> · {{ preview.payload.time_horizon }}</span></div>{% endif %}
+  <div class="research-columns"><div><strong>Supporting points</strong><ul>{% for point in preview.payload.supporting_points %}<li>{{ point }}</li>{% endfor %}</ul></div><div><strong>Risks</strong><ul>{% for risk in preview.payload.risks %}<li>{{ risk }}</li>{% endfor %}</ul></div></div>
+  {% if preview.payload.sources %}<div class="research-sources"><strong>Sources</strong><ul>{% for source in preview.payload.sources %}<li><a href="{{ source.url }}" target="_blank" rel="noopener noreferrer">{{ source.title }}</a>{% if source.publisher %} · {{ source.publisher }}{% endif %}{% if source.published_at %} · {{ source.published_at }}{% endif %} · {{ source.source_type|title }}</li>{% endfor %}</ul></div>{% endif %}
+</article>
+<div class="actions research-preview-actions"><form method="post" action="{{ url_for('cancel_research_import', token=preview.id) }}"><button class="btn" type="submit">Cancel import</button></form><form method="post" action="{{ url_for('confirm_research_import_route', token=preview.id) }}"><button class="btn primary" type="submit">Import as draft</button></form></div>
+{% endblock %}
