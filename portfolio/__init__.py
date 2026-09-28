@@ -11,6 +11,8 @@ from .db import migrate
 from .db import connect
 from .cash import ensure_cash_instruments
 
+APP_VERSION = "1.1.0"
+
 if TYPE_CHECKING:
     from flask import Flask
 
@@ -116,7 +118,7 @@ def create_app(test_config: dict | None = None) -> "Flask":
             ).fetchone()[0]
         return {
             "app_preferences": preferences, "tour_autostart": not tour_seen,
-            "research_draft_count": draft_count,
+            "research_draft_count": draft_count, "app_version": APP_VERSION,
         }
 
     @app.post("/tour/seen")

@@ -132,14 +132,20 @@ assumed value rather than presenting it as a newly fetched quote.
 
 ## Import AI-assisted research
 
-Version 1.1 keeps research local and user-led. You can ask Codex or another AI
-agent to research an instrument, then paste its structured JSON result through
-**Research → Import AI research**. The app stores the result and its source
-links locally as a draft for review.
+Version 1.1 keeps research local and user-led. Open **Research → Upload AI
+findings**, select an instrument, and copy the generated prompt into Codex or
+another AI agent. Download the provided Markdown template and ask the agent to
+return its findings in that format. Upload the completed `.md` file to see a
+parsed preview before creating a draft.
 
 The app does not make AI API calls, so this workflow has no API configuration or
 usage cost. Every imported result starts as a draft and cannot reach dashboard
-monitoring until you approve it.
+monitoring until you approve it. The original Markdown remains stored locally
+and unchanged when you edit the working thesis.
+
+Monitoring supports numeric price conditions and displays **Watching**,
+**Review due**, **Price stale**, **No price**, or **Expired**. A condition only
+asks you to review the thesis; it never creates a transaction or trade.
 
 ## Local data and backups
 
@@ -179,7 +185,8 @@ python3 -m unittest discover -s tests -v
 
 - [Product requirements](docs/investment-tracker-prd.md)
 - [Version 1.1.0 AI research PRD](docs/v1.1.0-ai-research-prd.md)
-- [Version 1.1.0 research prototype](docs/v1.1.0-research-prototype.html)
+- [Version 1.1.0 research development plan](docs/v1.1.0-research-development-plan.md)
+- [Current Version 1.1.0 research prototype](docs/prototypes/research/v1.1.0-research-prototype.2.html)
 - [Version 1.1.0 dashboard with research prototype](docs/v1.1.0-dashboard-research-prototype.html)
 - [Dashboard prototype](docs/dashboard-prototype.html)
 - [Style guide](docs/style-guide.md)
