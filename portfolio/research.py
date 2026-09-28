@@ -364,7 +364,9 @@ def research_counts(connection: sqlite3.Connection) -> dict[str, int]:
     return counts
 
 
-def monitored_research(connection: sqlite3.Connection, platform: str | None = None):
+def monitored_research(
+    connection: sqlite3.Connection, platform: str | None = None, today: date | None = None
+):
     parameters: list[object] = []
     platform_condition = ""
     if platform:
@@ -373,7 +375,8 @@ def monitored_research(connection: sqlite3.Connection, platform: str | None = No
     rows = connection.execute(
         f"""
         SELECT r.*, i.name AS instrument_name, i.ticker, i.platform, i.native_currency,
-               p.price AS current_price, p.price_date AS current_price_date
+               p.price AS current_price, p.price_date AS current_price_date,
+               p.currency AS current_price_currency
         FROM research_items r
         JOIN instruments i ON i.id = r.instrument_id
         LEFT JOIN prices p ON p.id = (
@@ -390,11 +393,57 @@ def monitored_research(connection: sqlite3.Connection, platform: str | None = No
         item = dict(row)
         price = item["current_price"]
         target = item["trigger_price"]
+        compatible_price = bool(
+            price is not None and (
+                not item["trigger_currency"]
+                or item["trigger_currency"] == item["current_price_currency"]
+            )
+        )
         item["trigger_met"] = bool(
-            price is not None and target is not None and (
+            compatible_price and target is not None and (
                 (item["trigger_type"] == "at_or_below" and price <= target)
                 or (item["trigger_type"] == "at_or_above" and price >= target)
             )
         )
+        today_value = today or date.today()
+        stale = bool(
+            item["current_price_date"]
+            and date.fromisoformat(item["current_price_date"]) < _research_last_trading_day(today_value)
+        )
+        expired = bool(item["expires_on"] and item["expires_on"] < today_value.isoformat())
+        if item["trigger_met"] and not stale:
+            item["monitoring_status"] = "review_due"
+            item["monitoring_label"] = "Review due"
+        elif stale:
+            item["monitoring_status"] = "price_stale"
+            item["monitoring_label"] = "Price stale"
+        elif expired:
+            item["monitoring_status"] = "expired"
+            item["monitoring_label"] = "Expired"
+        elif not compatible_price:
+            item["monitoring_status"] = "no_price"
+            item["monitoring_label"] = "No price"
+        else:
+            item["monitoring_status"] = "watching"
+            item["monitoring_label"] = "Watching"
+        if compatible_price and target is not None and price:
+            if item["trigger_type"] == "at_or_above":
+                item["distance_to_trigger"] = (target - price) / price
+            else:
+                item["distance_to_trigger"] = (price - target) / price
+        else:
+            item["distance_to_trigger"] = None
         items.append(item)
+    rank = {"review_due": 0, "price_stale": 1, "expired": 2, "watching": 3, "no_price": 4}
+    items.sort(key=lambda item: (
+        rank[item["monitoring_status"]],
+        abs(item["distance_to_trigger"]) if item["distance_to_trigger"] is not None else float("inf"),
+        item["instrument_name"],
+    ))
     return items
+
+
+def _research_last_trading_day(today: date) -> date:
+    offset = 3 if today.weekday() == 0 else 2 if today.weekday() == 6 else 1
+    from datetime import timedelta
+    return today - timedelta(days=offset)

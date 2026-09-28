@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 from portfolio import create_app
@@ -74,7 +75,49 @@ class ResearchTests(unittest.TestCase):
         )
         item = monitored_research(self.connection)[0]
         self.assertTrue(item["trigger_met"])
+        self.assertEqual("review_due", item["monitoring_status"])
         self.assertEqual(260, item["current_price"])
+
+    def test_monitoring_states_and_priority_order(self):
+        stale_values = self.values("Stale thesis")
+        stale_values["trigger_price"] = "400"
+        stale = create_manual_research(self.connection, stale_values)
+        second_instrument = create_instrument(self.connection, {
+            "name": "Nvidia", "ticker": "NVDA", "asset_class": "us_equity",
+            "platform": "IBKR", "native_currency": "USD", "sector": "Technology",
+            "notes": "",
+        })
+        due_values = self.values("Due thesis")
+        due_values["instrument_id"] = str(second_instrument)
+        due = create_manual_research(self.connection, due_values)
+        for item_id in (due, stale):
+            transition_research_item(self.connection, item_id, "monitoring")
+        self.connection.execute(
+            "INSERT INTO prices (instrument_id, price_date, price, currency, source) "
+            "VALUES (?, '2026-09-25', 260, 'USD', 'manual')", (second_instrument,)
+        )
+        self.connection.execute(
+            "INSERT INTO prices (instrument_id, price_date, price, currency, source) "
+            "VALUES (?, '2026-09-20', 200, 'USD', 'manual')", (self.apple_id,)
+        )
+        items = monitored_research(self.connection, today=date(2026, 9, 28))
+        self.assertEqual(["review_due", "price_stale"], [item["monitoring_status"] for item in items])
+
+    def test_expired_and_missing_price_states(self):
+        expired = create_manual_research(self.connection, self.values("Expired thesis"))
+        transition_research_item(self.connection, expired, "monitoring")
+        self.connection.execute(
+            "UPDATE research_items SET expires_on = '2026-09-26' WHERE id = ?", (expired,)
+        )
+        self.connection.execute(
+            "INSERT INTO prices (instrument_id, price_date, price, currency, source) "
+            "VALUES (?, '2026-09-25', 200, 'USD', 'manual')", (self.apple_id,)
+        )
+        item = monitored_research(self.connection, today=date(2026, 9, 28))[0]
+        self.assertEqual("expired", item["monitoring_status"])
+        self.connection.execute("DELETE FROM prices WHERE instrument_id = ?", (self.apple_id,))
+        item = monitored_research(self.connection, today=date(2026, 9, 28))[0]
+        self.assertEqual("expired", item["monitoring_status"])
 
     def test_edit_updates_working_thesis_and_records_event(self):
         item_id = create_manual_research(self.connection, self.values())

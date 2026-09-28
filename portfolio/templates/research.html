@@ -30,9 +30,9 @@
 
 {% if items %}<div class="research-list">
   {% for item in items %}
-  <article class="card research-card">
+  <article class="card research-card" id="research-item-{{ item.id }}">
     <div class="research-card-top">
-      <div><div class="research-title"><h2>{{ item.instrument_name }}</h2>{% if item.ticker %}<span>{{ item.ticker }}</span>{% endif %}<span class="stance {{ item.stance }}">{{ item.stance|title }}</span>{% if item.origin == 'ai' and not item.sources %}<span class="badge stale">Incomplete · no verified sources</span>{% endif %}</div><p class="sub">{{ item.platform }} · {{ item.origin|title }} · {{ item.research_date }}</p></div>
+      <div><div class="research-title"><h2>{{ item.instrument_name }}</h2>{% if item.ticker %}<span>{{ item.ticker }}</span>{% endif %}<span class="stance {{ item.stance }}">{{ item.stance|title }}</span>{% if item.monitoring_status %}<span class="badge research-status {{ item.monitoring_status }}">{{ item.monitoring_label }}</span>{% endif %}{% if item.origin == 'ai' and not item.sources %}<span class="badge stale">Incomplete · no verified sources</span>{% endif %}</div><p class="sub">{{ item.platform }} · {{ item.origin|title }} · {{ item.research_date }}{% if item.monitoring_status and item.current_price is not none %} · Current {{ item.current_price|unit_price(item.current_price_currency) }} as of {{ item.current_price_date|short_date }}{% endif %}</p></div>
       {% if item.confidence %}<span class="confidence">{{ item.confidence|title }} confidence</span>{% endif %}
     </div>
     <p class="research-summary">{{ item.summary }}</p>

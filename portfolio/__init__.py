@@ -677,6 +677,21 @@ def create_app(test_config: dict | None = None) -> "Flask":
             if selected_platform not in platforms:
                 selected_platform = None
             items = list_research(connection, status, selected_platform)
+            if status == "monitoring":
+                monitoring_states = {
+                    item["id"]: item for item in monitored_research(connection, selected_platform)
+                }
+                for item in items:
+                    state = monitoring_states.get(item["id"])
+                    if state:
+                        item.update({
+                            "monitoring_status": state["monitoring_status"],
+                            "monitoring_label": state["monitoring_label"],
+                            "current_price": state["current_price"],
+                            "current_price_date": state["current_price_date"],
+                            "current_price_currency": state["current_price_currency"],
+                            "distance_to_trigger": state["distance_to_trigger"],
+                        })
         return render_template(
             "research.html", items=items, counts=counts, status=status,
             statuses=STATUSES, platforms=platforms, selected_platform=selected_platform,
