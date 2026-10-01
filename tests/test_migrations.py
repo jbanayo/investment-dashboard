@@ -31,12 +31,12 @@ class MigrationTests(unittest.TestCase):
                     "ratings", "documents", "notes", "schema_migrations",
                     "price_fetch_usage", "instrument_source_mappings",
                     "research_runs", "research_items", "research_sources",
-                    "research_events", "research_imports",
+                    "research_events", "research_imports", "research_outcomes",
                     "research_import_previews", "watchlist",
                 }.issubset(tables)
             )
             self.assertEqual(
-                14,
+                15,
                 connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0],
             )
 
@@ -126,7 +126,7 @@ class MigrationTests(unittest.TestCase):
             ).fetchone()
             self.assertEqual(("saved", "Existing thesis"), tuple(item))
             self.assertEqual(
-                14,
+                15,
                 connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0],
             )
             tables = {
@@ -136,6 +136,7 @@ class MigrationTests(unittest.TestCase):
             }
             self.assertIn("research_imports", tables)
             self.assertIn("research_import_previews", tables)
+            self.assertIn("research_outcomes", tables)
 
     def test_foreign_keys_and_platform_scoped_external_ids_are_enforced(self):
         migrate(self.database)

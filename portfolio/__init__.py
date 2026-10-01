@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import json
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -27,6 +28,7 @@ def create_app(test_config: dict | None = None) -> "Flask":
         BASE_CURRENCY=os.environ.get("PORTFOLIO_BASE_CURRENCY", "PHP").upper(),
         SECRET_KEY=os.environ.get("PORTFOLIO_SECRET_KEY", "local-development-only"),
         TWELVE_DATA_API_KEY=os.environ.get("TWELVE_DATA_API_KEY", ""),
+        RESEARCH_UPLOAD_DIR=str(Path(app.instance_path) / "research_uploads"),
     )
 
     if test_config:
@@ -96,7 +98,8 @@ def create_app(test_config: dict | None = None) -> "Flask":
     from .pse_edge import refresh_pse_edge_prices
     from .research import (
         CONFIDENCE_LEVELS, STANCES, STATUSES, TRIGGER_TYPES, ResearchError,
-        create_manual_research, export_research_markdown, list_research, research_counts,
+        MAX_ATTACHMENT_BYTES, attachment_type, create_manual_research,
+        export_research_markdown, list_research, research_counts,
         monitored_research,
         transition_research_item, update_research_item,
     )
@@ -238,8 +241,18 @@ def create_app(test_config: dict | None = None) -> "Flask":
             flash("Type RESET exactly to confirm data removal.", "error")
             return redirect(url_for("settings_page"))
         with database_connection() as connection:
+            attachment_paths = [
+                Path(row[0]) for row in connection.execute(
+                    "SELECT stored_path FROM documents WHERE doc_type = 'research_attachment'"
+                )
+            ]
             reset_portfolio_data(connection)
             ensure_cash_instruments(connection)
+        upload_dir = Path(app.config["RESEARCH_UPLOAD_DIR"]).resolve()
+        for attachment_path in attachment_paths:
+            resolved = attachment_path.resolve()
+            if upload_dir in resolved.parents:
+                resolved.unlink(missing_ok=True)
         flash("Portfolio data reset. Settings were retained.")
         return redirect(url_for("settings_page"))
 
@@ -862,5 +875,65 @@ def create_app(test_config: dict | None = None) -> "Flask":
             BytesIO(markdown.encode("utf-8")), as_attachment=True,
             download_name=filename, mimetype="text/markdown; charset=utf-8",
         )
+
+    @app.post("/research/<int:item_id>/attachments")
+    def add_research_attachment(item_id: int):
+        upload = request.files.get("attachment")
+        if not upload or not upload.filename:
+            flash("Choose a PDF or image to attach.", "error")
+            return redirect(url_for("research", status=request.form.get("return_status", "draft")))
+        content = upload.stream.read(MAX_ATTACHMENT_BYTES + 1)
+        try:
+            if len(content) > MAX_ATTACHMENT_BYTES:
+                raise ResearchError("Research attachments must be 10 MB or smaller.")
+            extension, mime_type = attachment_type(content)
+            with database_connection() as connection:
+                item = connection.execute(
+                    "SELECT id FROM research_items WHERE id = ?", (item_id,)
+                ).fetchone()
+                if not item:
+                    raise ResearchError("Research item not found.")
+                upload_dir = Path(app.config["RESEARCH_UPLOAD_DIR"])
+                upload_dir.mkdir(parents=True, exist_ok=True)
+                stored_path = upload_dir / f"{uuid.uuid4().hex}.{extension}"
+                stored_path.write_bytes(content)
+                try:
+                    document_id = connection.execute(
+                        """INSERT INTO documents
+                           (filename, stored_path, doc_type, extraction_status)
+                           VALUES (?, ?, 'research_attachment', 'not_requested')""",
+                        (Path(upload.filename).name[:255], str(stored_path)),
+                    ).lastrowid
+                    connection.execute(
+                        """INSERT INTO research_sources
+                           (research_item_id, title, publisher, url, document_id, source_type)
+                           VALUES (?, ?, 'Local attachment', ?, ?, 'other')""",
+                        (item_id, Path(upload.filename).name[:255],
+                         f"/research/documents/{document_id}", document_id),
+                    )
+                except Exception:
+                    stored_path.unlink(missing_ok=True)
+                    raise
+            flash(f"Attached {Path(upload.filename).name}.")
+        except ResearchError as error:
+            flash(str(error), "error")
+        return redirect(url_for("research", status=request.form.get("return_status", "draft")))
+
+    @app.get("/research/documents/<int:document_id>")
+    def download_research_attachment(document_id: int):
+        with database_connection() as connection:
+            document = connection.execute(
+                """SELECT d.* FROM documents d JOIN research_sources source
+                   ON source.document_id = d.id WHERE d.id = ?""",
+                (document_id,),
+            ).fetchone()
+        if not document:
+            return "Research attachment not found", 404
+        path = Path(document["stored_path"]).resolve()
+        upload_dir = Path(app.config["RESEARCH_UPLOAD_DIR"]).resolve()
+        if upload_dir not in path.parents or not path.is_file():
+            return "Research attachment not found", 404
+        _, mime_type = attachment_type(path.read_bytes()[:16])
+        return send_file(path, as_attachment=True, download_name=document["filename"], mimetype=mime_type)
 
     return app

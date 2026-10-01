@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import io
 from datetime import date
 from pathlib import Path
 
@@ -143,6 +144,41 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(markdown.encode(), response.data)
         self.connection = connect(self.database)
 
+    def test_research_attachment_is_validated_stored_downloaded_and_reset(self):
+        item_id = create_manual_research(self.connection, self.values())
+        self.connection.commit()
+        self.connection.close()
+        upload_dir = Path(self.temp_dir.name) / "uploads"
+        app = create_app({
+            "TESTING": True, "DATABASE": str(self.database),
+            "RESEARCH_UPLOAD_DIR": str(upload_dir),
+        })
+        client = app.test_client()
+        png = b"\x89PNG\r\n\x1a\n" + b"test image content"
+
+        invalid = client.post(f"/research/{item_id}/attachments", data={
+            "return_status": "draft", "attachment": (io.BytesIO(b"not an image"), "fake.png"),
+        }, follow_redirects=True)
+        self.assertIn(b"Choose a PDF, PNG, JPEG, GIF, or WebP", invalid.data)
+        response = client.post(f"/research/{item_id}/attachments", data={
+            "return_status": "draft", "attachment": (io.BytesIO(png), "chart.png"),
+        }, follow_redirects=True)
+        self.assertIn(b"Attached chart.png", response.data)
+        with connect(self.database) as connection:
+            document = connection.execute(
+                "SELECT * FROM documents WHERE doc_type = 'research_attachment'"
+            ).fetchone()
+        stored = Path(document["stored_path"])
+        self.assertTrue(stored.is_file())
+        download = client.get(f"/research/documents/{document['id']}")
+        self.assertEqual(png, download.data)
+        self.assertIn("chart.png", download.headers["Content-Disposition"])
+        download.close()
+
+        client.post("/settings/database/reset", data={"confirmation": "RESET"})
+        self.assertFalse(stored.exists())
+        self.connection = connect(self.database)
+
     def test_price_trigger_requires_a_positive_price(self):
         values = self.values()
         values["trigger_price"] = ""
@@ -160,6 +196,34 @@ class ResearchTests(unittest.TestCase):
         self.assertTrue(item["trigger_met"])
         self.assertEqual("review_due", item["monitoring_status"])
         self.assertEqual(260, item["current_price"])
+        outcome = self.connection.execute(
+            "SELECT * FROM research_outcomes WHERE research_item_id = ?", (item_id,)
+        ).fetchone()
+        self.assertEqual("trigger_reached", outcome["event_type"])
+        self.assertEqual(260, outcome["price"])
+        # Re-evaluation does not duplicate the first reached event.
+        monitored_research(self.connection, today=date(2026, 9, 28))
+        self.assertEqual(1, self.connection.execute(
+            "SELECT COUNT(*) FROM research_outcomes WHERE research_item_id = ?", (item_id,)
+        ).fetchone()[0])
+
+    def test_archive_records_price_and_later_performance_as_context(self):
+        item_id = create_manual_research(self.connection, self.values())
+        self.connection.execute(
+            "INSERT INTO prices (instrument_id, price_date, price, currency, source) "
+            "VALUES (?, '2026-09-26', 200, 'USD', 'manual')", (self.apple_id,)
+        )
+        transition_research_item(self.connection, item_id, "archived")
+        self.connection.execute(
+            "INSERT INTO prices (instrument_id, price_date, price, currency, source) "
+            "VALUES (?, '2026-10-01', 220, 'USD', 'manual')", (self.apple_id,)
+        )
+
+        item = list_research(self.connection, "archived")[0]
+
+        self.assertEqual("archived", item["outcomes"][0]["event_type"])
+        self.assertEqual(200, item["outcomes"][0]["price"])
+        self.assertAlmostEqual(0.1, item["outcomes"][0]["later_performance"])
 
     def test_monitoring_states_and_priority_order(self):
         stale_values = self.values("Stale thesis")

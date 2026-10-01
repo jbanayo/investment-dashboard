@@ -13,6 +13,14 @@ STATUSES = ("draft", "monitoring", "saved", "archived")
 TRIGGER_TYPES = ("none", "at_or_below", "at_or_above", "event")
 CONFIDENCE_LEVELS = ("low", "medium", "high")
 SOURCE_TYPES = ("filing", "company", "exchange", "news", "research", "other")
+MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+ATTACHMENT_SIGNATURES = (
+    (b"%PDF-", "pdf", "application/pdf"),
+    (b"\x89PNG\r\n\x1a\n", "png", "image/png"),
+    (b"\xff\xd8\xff", "jpg", "image/jpeg"),
+    (b"GIF87a", "gif", "image/gif"),
+    (b"GIF89a", "gif", "image/gif"),
+)
 
 
 class ResearchError(ValueError):
@@ -187,6 +195,21 @@ def transition_research_item(connection: sqlite3.Connection, item_id: int, new_s
         raise ResearchError("Research item not found.")
     if item["status"] == new_status:
         return
+    if new_status == "archived":
+        latest = connection.execute(
+            "SELECT price, currency, price_date FROM prices WHERE instrument_id = ? "
+            "ORDER BY price_date DESC, id DESC LIMIT 1", (item["instrument_id"],)
+        ).fetchone()
+        connection.execute(
+            """INSERT OR IGNORE INTO research_outcomes
+               (research_item_id, event_type, event_date, price, currency, price_date)
+               VALUES (?, 'archived', ?, ?, ?, ?)""",
+            (
+                item_id, date.today().isoformat(), latest["price"] if latest else None,
+                latest["currency"] if latest else None,
+                latest["price_date"] if latest else None,
+            ),
+        )
     if new_status == "monitoring":
         previous = connection.execute(
             "SELECT id FROM research_items WHERE instrument_id = ? AND status = 'monitoring' AND id != ?",
@@ -246,6 +269,7 @@ def list_research(connection: sqlite3.Connection, status: str = "draft", platfor
         item["comparison"] = (
             research_comparison(connection, item) if item["status"] == "draft" else None
         )
+        item["outcomes"] = research_outcomes(connection, item["id"], item["instrument_id"])
         result.append(item)
     return result
 
@@ -297,6 +321,29 @@ def research_counts(connection: sqlite3.Connection) -> dict[str, int]:
     return counts
 
 
+def research_outcomes(
+    connection: sqlite3.Connection, item_id: int, instrument_id: int
+) -> list[dict]:
+    latest = connection.execute(
+        "SELECT price, currency, price_date FROM prices WHERE instrument_id = ? "
+        "ORDER BY price_date DESC, id DESC LIMIT 1", (instrument_id,)
+    ).fetchone()
+    outcomes = []
+    for row in connection.execute(
+        "SELECT * FROM research_outcomes WHERE research_item_id = ? ORDER BY event_date, id",
+        (item_id,),
+    ):
+        outcome = dict(row)
+        outcome["later_price"] = latest["price"] if latest else None
+        outcome["later_price_date"] = latest["price_date"] if latest else None
+        outcome["later_performance"] = (
+            latest["price"] / row["price"] - 1
+            if latest and row["price"] and latest["currency"] == row["currency"] else None
+        )
+        outcomes.append(outcome)
+    return outcomes
+
+
 def export_research_markdown(connection: sqlite3.Connection, item_id: int) -> tuple[str, str]:
     item = connection.execute(
         """SELECT r.*, i.name AS instrument_name, i.ticker
@@ -325,9 +372,11 @@ def export_research_markdown(connection: sqlite3.Connection, item_id: int) -> tu
     frontmatter.append("---")
     supporting = json.loads(item["supporting_points_json"])
     risks = json.loads(item["risks_json"])
-    sources = connection.execute(
+    all_sources = connection.execute(
         "SELECT * FROM research_sources WHERE research_item_id = ? ORDER BY id", (item_id,)
     ).fetchall()
+    sources = [source for source in all_sources if source["document_id"] is None]
+    attachments = [source["title"] for source in all_sources if source["document_id"] is not None]
     source_lines = []
     for source in sources:
         title = source["title"].replace("[", "\\[").replace("]", "\\]")
@@ -337,10 +386,20 @@ def export_research_markdown(connection: sqlite3.Connection, item_id: int) -> tu
         "# Thesis", "", item["summary"], "", "## Supporting points", "",
         *[f"- {point}" for point in supporting], "", "## Risks", "",
         *[f"- {risk}" for risk in risks], "", "## Sources", "",
-        *(source_lines or ["<!-- No verified sources were stored. -->"]), "",
+        *(source_lines or ["<!-- No verified web sources were stored. -->"]),
+        *[f"<!-- Local attachment not embedded: {name} -->" for name in attachments], "",
     ]
     ticker = (item["ticker"] or item["instrument_name"]).lower().replace(" ", "-")
     return f"{ticker}-research-{item['research_date']}.md", "\n".join(frontmatter + [""] + body)
+
+
+def attachment_type(content: bytes) -> tuple[str, str]:
+    for signature, extension, mime_type in ATTACHMENT_SIGNATURES:
+        if content.startswith(signature):
+            return extension, mime_type
+    if content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+        return "webp", "image/webp"
+    raise ResearchError("Choose a PDF, PNG, JPEG, GIF, or WebP file.")
 
 
 def monitored_research(
@@ -393,6 +452,22 @@ def monitored_research(
         if item["trigger_met"] and not stale:
             item["monitoring_status"] = "review_due"
             item["monitoring_label"] = "Review due"
+            outcome = connection.execute(
+                """INSERT OR IGNORE INTO research_outcomes
+                   (research_item_id, event_type, event_date, price, currency, price_date)
+                   VALUES (?, 'trigger_reached', ?, ?, ?, ?)""",
+                (
+                    item["id"], today_value.isoformat(), price,
+                    item["current_price_currency"], item["current_price_date"],
+                ),
+            )
+            if outcome.rowcount:
+                connection.execute(
+                    """INSERT INTO research_events
+                       (research_item_id, event_type, detail)
+                       VALUES (?, 'trigger_met', 'Numeric review condition reached')""",
+                    (item["id"],),
+                )
         elif stale:
             item["monitoring_status"] = "price_stale"
             item["monitoring_label"] = "Price stale"
