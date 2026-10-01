@@ -96,7 +96,7 @@ def create_app(test_config: dict | None = None) -> "Flask":
     from .pse_edge import refresh_pse_edge_prices
     from .research import (
         CONFIDENCE_LEVELS, STANCES, STATUSES, TRIGGER_TYPES, ResearchError,
-        create_manual_research, list_research, research_counts,
+        create_manual_research, export_research_markdown, list_research, research_counts,
         monitored_research,
         transition_research_item, update_research_item,
     )
@@ -849,5 +849,18 @@ def create_app(test_config: dict | None = None) -> "Flask":
         except (ResearchError, KeyError) as error:
             flash(str(error) or "Could not update research.", "error")
         return redirect(url_for("research", status=request.form.get("return_status", "draft")))
+
+    @app.get("/research/<int:item_id>/export")
+    def export_research(item_id: int):
+        from io import BytesIO
+        try:
+            with database_connection() as connection:
+                filename, markdown = export_research_markdown(connection, item_id)
+        except ResearchError:
+            return "Research item not found", 404
+        return send_file(
+            BytesIO(markdown.encode("utf-8")), as_attachment=True,
+            download_name=filename, mimetype="text/markdown; charset=utf-8",
+        )
 
     return app

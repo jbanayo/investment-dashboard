@@ -297,6 +297,52 @@ def research_counts(connection: sqlite3.Connection) -> dict[str, int]:
     return counts
 
 
+def export_research_markdown(connection: sqlite3.Connection, item_id: int) -> tuple[str, str]:
+    item = connection.execute(
+        """SELECT r.*, i.name AS instrument_name, i.ticker
+           FROM research_items r JOIN instruments i ON i.id = r.instrument_id
+           WHERE r.id = ?""",
+        (item_id,),
+    ).fetchone()
+    if not item:
+        raise ResearchError("Research item not found.")
+    frontmatter = [
+        "---", "format_version: 1",
+        f"instrument: {json.dumps(item['instrument_name'])}",
+        f"ticker: {json.dumps(item['ticker'] or '')}",
+        f"research_date: {item['research_date']}", f"stance: {item['stance']}",
+        f"confidence: {item['confidence'] or 'medium'}",
+        f"time_horizon: {json.dumps(item['time_horizon'] or 'Not set')}",
+        f"trigger_type: {item['trigger_type']}",
+    ]
+    if item["trigger_type"] in ("at_or_below", "at_or_above"):
+        frontmatter.extend([
+            f"trigger_price: {item['trigger_price']:g}",
+            f"trigger_currency: {item['trigger_currency']}",
+        ])
+    elif item["trigger_type"] == "event":
+        frontmatter.append(f"event_trigger: {json.dumps(item['event_trigger'] or '')}")
+    frontmatter.append("---")
+    supporting = json.loads(item["supporting_points_json"])
+    risks = json.loads(item["risks_json"])
+    sources = connection.execute(
+        "SELECT * FROM research_sources WHERE research_item_id = ? ORDER BY id", (item_id,)
+    ).fetchall()
+    source_lines = []
+    for source in sources:
+        title = source["title"].replace("[", "\\[").replace("]", "\\]")
+        metadata = [source["publisher"] or "", source["published_at"] or "", source["source_type"]]
+        source_lines.append(f"- [{title}]({source['url']}) — " + " | ".join(metadata))
+    body = [
+        "# Thesis", "", item["summary"], "", "## Supporting points", "",
+        *[f"- {point}" for point in supporting], "", "## Risks", "",
+        *[f"- {risk}" for risk in risks], "", "## Sources", "",
+        *(source_lines or ["<!-- No verified sources were stored. -->"]), "",
+    ]
+    ticker = (item["ticker"] or item["instrument_name"]).lower().replace(" ", "-")
+    return f"{ticker}-research-{item['research_date']}.md", "\n".join(frontmatter + [""] + body)
+
+
 def monitored_research(
     connection: sqlite3.Connection, platform: str | None = None, today: date | None = None
 ):

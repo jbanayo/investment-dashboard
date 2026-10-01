@@ -7,9 +7,10 @@ from portfolio import create_app
 from portfolio.db import connect, migrate
 from portfolio.instruments import create_instrument
 from portfolio.research import (
-    ResearchError, create_manual_research, list_research, monitored_research,
+    ResearchError, create_manual_research, export_research_markdown, list_research, monitored_research,
     transition_research_item, update_research_item,
 )
+from portfolio.research_import import parse_research_markdown
 
 
 class ResearchTests(unittest.TestCase):
@@ -118,6 +119,28 @@ class ResearchTests(unittest.TestCase):
         self.assertIn(b"Reassess the current hold thesis", prompt.data)
         self.assertIn(b"Current Apple thesis", prompt.data)
         self.assertIn(b'value="1" data-name="Apple"', prompt.data)
+        self.connection = connect(self.database)
+
+    def test_exported_research_is_a_parseable_markdown_download(self):
+        values = self.values("Portable Apple thesis")
+        values.update({
+            "source_url": "https://investor.apple.com/",
+            "source_title": "Apple Investor Relations", "source_publisher": "Apple",
+        })
+        item_id = create_manual_research(self.connection, values)
+        filename, markdown = export_research_markdown(self.connection, item_id)
+        parsed = parse_research_markdown(markdown.encode(), filename, "AAPL")
+        self.assertEqual("Portable Apple thesis", parsed.payload["summary"])
+        self.assertEqual("Apple Investor Relations", parsed.payload["sources"][0]["title"])
+        self.connection.commit()
+        self.connection.close()
+        app = create_app({"TESTING": True, "DATABASE": str(self.database)})
+
+        response = app.test_client().get(f"/research/{item_id}/export")
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("aapl-research-2026-09-26.md", response.headers["Content-Disposition"])
+        self.assertEqual(markdown.encode(), response.data)
         self.connection = connect(self.database)
 
     def test_price_trigger_requires_a_positive_price(self):
