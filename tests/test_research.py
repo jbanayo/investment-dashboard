@@ -102,6 +102,24 @@ class ResearchTests(unittest.TestCase):
         self.assertIn(b"Proposed replacement thesis", response.data)
         self.connection = connect(self.database)
 
+    def test_monitored_thesis_prefills_replacement_prompt(self):
+        item_id = create_manual_research(self.connection, self.values("Current Apple thesis"))
+        transition_research_item(self.connection, item_id, "monitoring")
+        self.connection.commit()
+        self.connection.close()
+        app = create_app({"TESTING": True, "DATABASE": str(self.database)})
+        client = app.test_client()
+
+        monitoring = client.get("/research?status=monitoring")
+        prompt = client.get(f"/research/import?replace={item_id}")
+
+        self.assertIn(b"Research an update", monitoring.data)
+        self.assertEqual(200, prompt.status_code)
+        self.assertIn(b"Reassess the current hold thesis", prompt.data)
+        self.assertIn(b"Current Apple thesis", prompt.data)
+        self.assertIn(b'value="1" data-name="Apple"', prompt.data)
+        self.connection = connect(self.database)
+
     def test_price_trigger_requires_a_positive_price(self):
         values = self.values()
         values["trigger_price"] = ""

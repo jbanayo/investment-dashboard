@@ -705,6 +705,12 @@ def create_app(test_config: dict | None = None) -> "Flask":
             instruments = connection.execute(
                 "SELECT * FROM instruments WHERE asset_class != 'cash' ORDER BY platform, name"
             ).fetchall()
+            replacement = None
+            replacement_id = request.args.get("replace", type=int)
+            if replacement_id:
+                replacement = connection.execute(
+                    "SELECT * FROM research_items WHERE id = ?", (replacement_id,)
+                ).fetchone()
         if request.method == "POST":
             try:
                 instrument_id = int(request.form.get("instrument_id", ""))
@@ -720,7 +726,22 @@ def create_app(test_config: dict | None = None) -> "Flask":
                 return redirect(url_for("preview_research_import", token=token))
             except (ResearchImportError, TypeError, ValueError) as error:
                 flash(str(error), "error")
-        return render_template("research_import.html", instruments=instruments)
+        selected_instrument_id = (
+            replacement["instrument_id"] if replacement else request.args.get("instrument_id", type=int)
+        )
+        replacement_focus = ""
+        if replacement:
+            replacement_focus = (
+                f"Reassess the current {replacement['stance']} thesis dated "
+                f"{replacement['research_date']}. Identify material developments, evidence "
+                f"that confirms or breaks the thesis, and whether its stance or review "
+                f"condition should change. Current thesis: {replacement['summary']}"
+            )
+        return render_template(
+            "research_import.html", instruments=instruments,
+            selected_instrument_id=selected_instrument_id,
+            replacement_focus=replacement_focus,
+        )
 
     @app.get("/research/import/preview/<token>")
     def preview_research_import(token: str):

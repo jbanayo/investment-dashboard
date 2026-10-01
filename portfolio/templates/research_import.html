@@ -4,14 +4,14 @@
 <div class="head"><div><h1>Upload AI findings</h1><p class="sub">Create a prompt for your AI agent, then upload its Markdown result for review.</p></div><a class="btn" href="{{ url_for('research') }}">Back to research</a></div>
 <section class="card research-import-guide">
   <div><span class="eyebrow">Step 1</span><h2>Prepare the research request</h2><p class="sub">Choose the investment. The prompt asks for public, cited research in the app's versioned Markdown format.</p></div>
-  <label class="field">Investment<select class="input" id="prompt-instrument"><option value="">Choose an investment</option>{% for instrument in instruments %}{% if instrument.ticker %}<option data-name="{{ instrument.name }}" data-ticker="{{ instrument.ticker }}">{{ instrument.name }} ({{ instrument.ticker }}) · {{ instrument.platform }}</option>{% endif %}{% endfor %}</select></label>
-  <label class="field">Optional focus<textarea class="input" id="prompt-focus" rows="2" placeholder="Example: focus on valuation and the next earnings cycle"></textarea></label>
+  <label class="field">Investment<select class="input" id="prompt-instrument"><option value="">Choose an investment</option>{% for instrument in instruments %}{% if instrument.ticker %}<option value="{{ instrument.id }}" data-name="{{ instrument.name }}" data-ticker="{{ instrument.ticker }}" {% if selected_instrument_id == instrument.id %}selected{% endif %}>{{ instrument.name }} ({{ instrument.ticker }}) · {{ instrument.platform }}</option>{% endif %}{% endfor %}</select></label>
+  <label class="field">Optional focus<textarea class="input" id="prompt-focus" rows="3" placeholder="Example: focus on valuation and the next earnings cycle">{{ replacement_focus }}</textarea></label>
   <label class="field">Prompt<textarea class="input code-input" id="agent-prompt" rows="9" readonly>Select an investment to create its prompt.</textarea></label>
   <div class="actions"><button class="btn" id="copy-agent-prompt" type="button">Copy prompt</button><a class="btn" href="{{ url_for('static', filename='research-import-template.md') }}" download>Download Markdown template</a></div>
 </section>
 <form class="card form-grid research-upload" method="post" enctype="multipart/form-data">
   <div class="full"><span class="eyebrow">Step 2</span><h2>Upload the completed Markdown</h2><p class="sub">The app validates and previews the file before creating any research card.</p></div>
-  <label class="field">Investment<select class="input" required name="instrument_id"><option value="">Choose an investment</option>{% for instrument in instruments %}{% if instrument.ticker %}<option value="{{ instrument.id }}" {% if request.form.get('instrument_id') == instrument.id|string %}selected{% endif %}>{{ instrument.name }} ({{ instrument.ticker }}) · {{ instrument.platform }}</option>{% endif %}{% endfor %}</select></label>
+  <label class="field">Investment<select class="input" required name="instrument_id"><option value="">Choose an investment</option>{% for instrument in instruments %}{% if instrument.ticker %}<option value="{{ instrument.id }}" {% if request.form.get('instrument_id') == instrument.id|string or (not request.form and selected_instrument_id == instrument.id) %}selected{% endif %}>{{ instrument.name }} ({{ instrument.ticker }}) · {{ instrument.platform }}</option>{% endif %}{% endfor %}</select></label>
   <label class="field">Agent name <span class="sub">optional</span><input class="input" name="agent_name" value="{{ request.form.get('agent_name', 'Codex') }}" maxlength="80"></label>
   <label class="field full research-file-drop">Markdown file<input required type="file" name="research_file" accept=".md,.markdown,text/markdown,text/plain"><span>Choose or drop one UTF-8 .md or .markdown file, up to 1 MB.</span></label>
   <div class="privacy-note full"><strong>Your portfolio stays local</strong><p>The app does not contact an AI provider. You decide what to share with your agent, and this upload is stored only in the local database after confirmation.</p></div>
@@ -37,6 +37,7 @@
     copy.textContent = 'Copied';
     setTimeout(() => { copy.textContent = 'Copy prompt'; }, 1400);
   });
+  updatePrompt();
 })();
 </script>
 {% endblock %}
