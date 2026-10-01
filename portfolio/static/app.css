@@ -114,6 +114,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .research-artifact { margin-top: 14px; color: var(--ink-2); }
 .research-artifact summary { cursor: pointer; }
 .research-artifact pre { max-height: 320px; overflow: auto; white-space: pre-wrap; padding: 12px; border-radius: 8px; background: var(--surface-2); color: var(--ink); }
+.research-comparison { margin: 14px 0; border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+.research-comparison summary { cursor: pointer; font-weight: 650; }
+.comparison-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.comparison-grid > div { padding: 12px; border-radius: 8px; background: var(--surface-2); }
+.comparison-grid p { margin: 6px 0 0; color: var(--ink-2); }
+.research-comparison table { margin-top: 12px; }
 .research-actions { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 14px; }
 .research-actions form { margin: 0; }
 .research-empty { padding: 40px; text-align: center; }
@@ -172,6 +178,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   .research-stats { grid-template-columns: repeat(2, 1fr); }
   .research-toolbar, .research-card-top, .research-run-panel { align-items: stretch; flex-direction: column; }
   .research-columns { grid-template-columns: 1fr; }
+  .comparison-grid { grid-template-columns: 1fr; }
   .dashboard-research-grid { grid-template-columns: 1fr; }
   .candidate-list { grid-template-columns: 1fr; }
 }

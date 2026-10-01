@@ -243,8 +243,50 @@ def list_research(connection: sqlite3.Connection, status: str = "draft", platfor
         item["sources"] = connection.execute(
             "SELECT * FROM research_sources WHERE research_item_id = ? ORDER BY id", (row["id"],)
         ).fetchall()
+        item["comparison"] = (
+            research_comparison(connection, item) if item["status"] == "draft" else None
+        )
         result.append(item)
     return result
+
+
+def _trigger_description(item) -> str:
+    if item["trigger_type"] == "event":
+        return item["event_trigger"] or "Event trigger"
+    if item["trigger_type"] in ("at_or_below", "at_or_above"):
+        direction = "At or below" if item["trigger_type"] == "at_or_below" else "At or above"
+        return f"{direction} {item['trigger_price']:g} {item['trigger_currency'] or ''}".strip()
+    return "No trigger"
+
+
+def research_comparison(connection: sqlite3.Connection, draft) -> dict | None:
+    """Compare a Draft with the currently monitored thesis for its instrument."""
+    current = connection.execute(
+        """SELECT * FROM research_items
+           WHERE instrument_id = ? AND status = 'monitoring' AND id != ?
+           ORDER BY updated_at DESC, id DESC LIMIT 1""",
+        (draft["instrument_id"], draft["id"]),
+    ).fetchone()
+    if not current:
+        return None
+    fields = (
+        ("Stance", current["stance"], draft["stance"]),
+        ("Review condition", _trigger_description(current), _trigger_description(draft)),
+        ("Time horizon", current["time_horizon"] or "Not set", draft["time_horizon"] or "Not set"),
+        ("Confidence", current["confidence"] or "Not set", draft["confidence"] or "Not set"),
+    )
+    changes = [
+        {"label": label, "current": old, "draft": new}
+        for label, old, new in fields if old != new
+    ]
+    return {
+        "current_id": current["id"],
+        "current_date": current["research_date"],
+        "current_summary": current["summary"],
+        "draft_summary": draft["summary"],
+        "summary_changed": current["summary"] != draft["summary"],
+        "changes": changes,
+    }
 
 
 def research_counts(connection: sqlite3.Connection) -> dict[str, int]:

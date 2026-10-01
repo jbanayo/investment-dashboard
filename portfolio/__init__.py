@@ -11,7 +11,7 @@ from .db import migrate
 from .db import connect
 from .cash import ensure_cash_instruments
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 
 if TYPE_CHECKING:
     from flask import Flask

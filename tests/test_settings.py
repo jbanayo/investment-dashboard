@@ -83,7 +83,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertIn(b"Catherine&#39;s Portfolio", response.data)
         self.assertIn(b'data-theme="dark"', response.data)
-        self.assertIn(b"1.1.0", response.data)
+        self.assertIn(b"1.1.1", response.data)
 
         export = client.get("/settings/database/export")
         self.assertEqual(200, export.status_code)

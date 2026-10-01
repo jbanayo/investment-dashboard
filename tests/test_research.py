@@ -7,7 +7,7 @@ from portfolio import create_app
 from portfolio.db import connect, migrate
 from portfolio.instruments import create_instrument
 from portfolio.research import (
-    ResearchError, create_manual_research, monitored_research,
+    ResearchError, create_manual_research, list_research, monitored_research,
     transition_research_item, update_research_item,
 )
 
@@ -59,6 +59,48 @@ class ResearchTests(unittest.TestCase):
             "SELECT id, status FROM research_items ORDER BY id"
         ).fetchall())
         self.assertEqual({first: "saved", second: "monitoring"}, statuses)
+
+    def test_draft_compares_with_current_monitored_thesis(self):
+        current = create_manual_research(self.connection, self.values("Current thesis"))
+        transition_research_item(self.connection, current, "monitoring")
+        draft_values = self.values("New evidence changes the thesis")
+        draft_values.update({
+            "stance": "reduce", "trigger_price": "225", "confidence": "high",
+        })
+        draft = create_manual_research(self.connection, draft_values)
+
+        items = list_research(self.connection, "draft")
+
+        self.assertEqual(draft, items[0]["id"])
+        comparison = items[0]["comparison"]
+        self.assertEqual(current, comparison["current_id"])
+        self.assertTrue(comparison["summary_changed"])
+        self.assertEqual(
+            ["Stance", "Review condition", "Confidence"],
+            [change["label"] for change in comparison["changes"]],
+        )
+
+    def test_draft_without_monitored_thesis_has_no_comparison(self):
+        create_manual_research(self.connection, self.values())
+        self.assertIsNone(list_research(self.connection, "draft")[0]["comparison"])
+
+    def test_research_page_renders_draft_comparison(self):
+        current = create_manual_research(self.connection, self.values("Current thesis"))
+        transition_research_item(self.connection, current, "monitoring")
+        proposed = self.values("Proposed replacement thesis")
+        proposed["stance"] = "reduce"
+        create_manual_research(self.connection, proposed)
+        self.connection.commit()
+        self.connection.close()
+        app = create_app({"TESTING": True, "DATABASE": str(self.database)})
+
+        response = app.test_client().get("/research?status=draft")
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn(b"Compare with monitored thesis", response.data)
+        self.assertIn(b"Current thesis", response.data)
+        self.assertIn(b"Proposed replacement thesis", response.data)
+        self.connection = connect(self.database)
 
     def test_price_trigger_requires_a_positive_price(self):
         values = self.values()
