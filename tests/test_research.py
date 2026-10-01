@@ -73,7 +73,7 @@ class ResearchTests(unittest.TestCase):
             "INSERT INTO prices (instrument_id, price_date, price, currency, source) VALUES (?, '2026-09-26', 260, 'USD', 'manual')",
             (self.apple_id,),
         )
-        item = monitored_research(self.connection)[0]
+        item = monitored_research(self.connection, today=date(2026, 9, 28))[0]
         self.assertTrue(item["trigger_met"])
         self.assertEqual("review_due", item["monitoring_status"])
         self.assertEqual(260, item["current_price"])

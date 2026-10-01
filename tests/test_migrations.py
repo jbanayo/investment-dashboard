@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from portfolio.db import connect, migrate
+from portfolio.db import MIGRATIONS_DIR, connect, migrate
 
 
 class MigrationTests(unittest.TestCase):
@@ -88,6 +88,54 @@ class MigrationTests(unittest.TestCase):
                 0,
                 connection.execute("SELECT COUNT(*) FROM research_import_previews").fetchone()[0],
             )
+
+    def test_upgrade_from_migration_13_preserves_existing_research(self):
+        with connect(self.database) as connection:
+            connection.execute(
+                """CREATE TABLE schema_migrations (
+                       version TEXT PRIMARY KEY,
+                       applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                   )"""
+            )
+            for migration_path in sorted(MIGRATIONS_DIR.glob("*.sql")):
+                version = migration_path.stem.split("_", 1)[0]
+                if int(version) >= 14:
+                    continue
+                connection.executescript(migration_path.read_text())
+                connection.execute(
+                    "INSERT INTO schema_migrations (version) VALUES (?)", (version,)
+                )
+            instrument_id = connection.execute(
+                "INSERT INTO instruments "
+                "(name, ticker, asset_class, platform, native_currency) "
+                "VALUES ('Apple', 'AAPL', 'us_equity', 'IBKR', 'USD')"
+            ).lastrowid
+            item_id = connection.execute(
+                """INSERT INTO research_items
+                   (instrument_id, origin, status, stance, research_date, summary)
+                   VALUES (?, 'manual', 'saved', 'hold', '2026-09-28',
+                           'Existing thesis')""",
+                (instrument_id,),
+            ).lastrowid
+
+        migrate(self.database)
+
+        with connect(self.database) as connection:
+            item = connection.execute(
+                "SELECT status, summary FROM research_items WHERE id = ?", (item_id,)
+            ).fetchone()
+            self.assertEqual(("saved", "Existing thesis"), tuple(item))
+            self.assertEqual(
+                14,
+                connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0],
+            )
+            tables = {
+                row[0] for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
+            self.assertIn("research_imports", tables)
+            self.assertIn("research_import_previews", tables)
 
     def test_foreign_keys_and_platform_scoped_external_ids_are_enforced(self):
         migrate(self.database)
